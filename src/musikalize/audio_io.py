@@ -1,4 +1,4 @@
-"""Chargement audio mono 16 kHz pour Essentia, avec repli ffmpeg."""
+"""Load mono 16 kHz audio for Essentia, with optional ffmpeg fallback."""
 
 from __future__ import annotations
 
@@ -16,11 +16,7 @@ def load_mono_16k(
     resample_quality: int = 4,
     ffmpeg_fallback: bool = True,
 ) -> Any:
-    """
-    Charge l'audio en mono flottant, 16 kHz (numpy).
-
-    Essaie `MonoLoader` Essentia ; en cas d'échec, décode via ffmpeg en WAV temporaire.
-    """
+    """Return mono float32 audio at 16 kHz (numpy). Try Essentia ``MonoLoader``; on failure decode via ffmpeg to a temp WAV."""
 
     import numpy as np
 

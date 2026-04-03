@@ -1,4 +1,4 @@
-"""Analyse paresseuse : embeddings, têtes TF, descripteurs classiques, méta agrégées."""
+"""Lazy analysis: embeddings (once), per-head predictions, classical descriptors."""
 
 from __future__ import annotations
 
@@ -16,10 +16,14 @@ from musikalize.analysis_ops import (
     select_genre_indices,
     split_genre_label,
 )
-from musikalize.config import ClassicalConfig, EmbeddingModel, LabelExtractor
+from musikalize.config import EmbeddingModel, LabelExtractor
 from musikalize.exceptions import PredictionError, UnknownEmbedderError
 
 log = logging.getLogger(__name__)
+
+_CLASSICAL_KEYS = frozenset(
+    {"meta_bpm", "meta_key", "meta_scale", "meta_danceability"}
+)
 
 
 @dataclass
@@ -40,18 +44,23 @@ def compute_embedding(audio: Any, emb: EmbeddingModel) -> Any:
     if emb.backend == "effnet_discogs":
         from essentia.standard import TensorflowPredictEffnetDiscogs
 
-        algo = TensorflowPredictEffnetDiscogs(
+        return TensorflowPredictEffnetDiscogs(
             graphFilename=path,
             output=emb.embedding_output,
-        )
-        return algo(audio)
+        )(audio)
 
-    # maest / generic_tf : graphe générique
-    from essentia.standard import TensorflowPredict
+    from essentia.standard import TensorflowPredictMAEST
 
-    inp = emb.input_tensor or "serving_default_input_1"
-    algo = TensorflowPredict(graphFilename=path, input=inp, output=emb.embedding_output)
-    return algo(audio)
+    kwargs: dict[str, Any] = {"graphFilename": path, "output": emb.embedding_output}
+    if emb.input_tensor is not None:
+        kwargs["input"] = emb.input_tensor
+    if emb.patch_size is not None:
+        kwargs["patchSize"] = emb.patch_size
+    if emb.patch_hop_size is not None:
+        kwargs["patchHopSize"] = emb.patch_hop_size
+    if emb.batch_size is not None:
+        kwargs["batchSize"] = emb.batch_size
+    return TensorflowPredictMAEST(**kwargs)(audio)
 
 
 def run_label_head(embeddings: Any, ex: LabelExtractor) -> PredictionRecord:
@@ -71,7 +80,7 @@ def run_label_head(embeddings: Any, ex: LabelExtractor) -> PredictionRecord:
             output=ex.output_tensor,
         )(embeddings)
     except Exception as e:
-        raise PredictionError(f"Tête TF «{ex.name}»: {e}") from e
+        raise PredictionError(f'Head "{ex.name}": {e}') from e
 
     pooled = mean_pool_time(np.asarray(raw))
 
@@ -91,7 +100,7 @@ def run_label_head(embeddings: Any, ex: LabelExtractor) -> PredictionRecord:
     probs = probs_from_raw(pooled)
     if labels and len(labels) != probs.size:
         log.warning(
-            "Labels (%d) ≠ probas (%d) pour «%s» — troncature.",
+            'Label count (%d) != probability count (%d) for "%s"; truncating.',
             len(labels),
             probs.size,
             ex.name,
@@ -144,31 +153,6 @@ def run_label_head(embeddings: Any, ex: LabelExtractor) -> PredictionRecord:
     return rec
 
 
-def run_classical(audio: Any, cfg: ClassicalConfig) -> dict[str, Any]:
-    out: dict[str, Any] = {}
-    if cfg.bpm:
-        from essentia.standard import PercivalBpmEstimator
-
-        bpm = float(PercivalBpmEstimator()(audio))
-        out["meta_bpm"] = int(round(bpm))
-    if cfg.key or cfg.scale:
-        from essentia.standard import KeyExtractor
-
-        ke = KeyExtractor()
-        key, scale, _ = ke(audio)
-        if cfg.key:
-            out["meta_key"] = str(key)
-        if cfg.scale:
-            out["meta_scale"] = str(scale)
-    if cfg.danceability_classical:
-        from essentia.standard import Danceability
-
-        d = Danceability()
-        dance, _ = d(audio)
-        out["meta_danceability"] = float(dance)
-    return out
-
-
 def meta_key_for_extractor(ex: LabelExtractor) -> str:
     if ex.category == "mood":
         return f"meta_mood_{ex.name}"
@@ -183,12 +167,15 @@ def flat_meta_from_record(ex: LabelExtractor, rec: PredictionRecord, list_sep: s
         rec.labels[i]: float(rec.probabilities[i])
         for i in range(min(len(rec.labels), len(rec.probabilities)))
     }
+    d_json = json.dumps(dprob, ensure_ascii=False)
 
     out: dict[str, Any] = {
         f"{base}_val": rec.top_score,
         f"{base}_val_str": str(rec.top_score),
         f"{base}_dict": dprob,
-        f"{base}_dict_str": json.dumps(dprob, ensure_ascii=False),
+        f"{base}_dict_str": d_json,
+        f"{base}_all": dprob,
+        f"{base}_all_str": d_json,
     }
 
     if ex.category == "genre":
@@ -203,14 +190,13 @@ def flat_meta_from_record(ex: LabelExtractor, rec: PredictionRecord, list_sep: s
 
 
 class LazyMetaEngine:
-    """Calcule embeddings / prédictions / classique à la demande."""
+    """Embeddings are computed once via ``compute_all_embeddings()``; heads and classical features are lazy."""
 
     def __init__(
         self,
         audio: Any,
         embedders: Mapping[str, EmbeddingModel],
         extractors: Sequence[LabelExtractor],
-        classical: ClassicalConfig,
         *,
         list_join_sep: str = ";",
     ) -> None:
@@ -218,46 +204,72 @@ class LazyMetaEngine:
         self._embedders = dict(embedders)
         self._extractors = list(extractors)
         self._by_name = {e.name: e for e in extractors}
-        self._classical = classical
         self._list_join_sep = list_join_sep
 
         self._emb: dict[str, Any] = {}
         self._pred: dict[str, PredictionRecord] = {}
-        self._classical_done = False
-        self._classical_values: dict[str, Any] = {}
+        self._classical_cache: dict[str, Any] = {}
 
     def _embedder_model(self, ex: LabelExtractor) -> EmbeddingModel:
         name = ex.resolved_embedder_name()
         if name not in self._embedders:
-            known = ", ".join(sorted(self._embedders)) or "(aucun)"
+            known = ", ".join(sorted(self._embedders)) or "(none)"
             raise UnknownEmbedderError(
-                f"Embedding «{name}» inconnu pour l'extracteur «{ex.name}». Connus : {known}"
+                f'Unknown embedding "{name}" for extractor "{ex.name}". Known: {known}'
             )
         return self._embedders[name]
 
-    def ensure_embedding(self, embedder_name: str) -> Any:
+    def compute_all_embeddings(self) -> None:
+        """Run every registered embedding model once (call from ``MusicProcess.analyze_file()``)."""
+
+        for name, model in self._embedders.items():
+            if name not in self._emb:
+                self._emb[name] = compute_embedding(self._audio, model)
+
+    def embedding(self, embedder_name: str) -> Any:
         if embedder_name not in self._emb:
-            if embedder_name not in self._embedders:
-                raise UnknownEmbedderError(
-                    f"Embedding «{embedder_name}» inconnu. Connus : {', '.join(sorted(self._embedders))}"
-                )
-            self._emb[embedder_name] = compute_embedding(self._audio, self._embedders[embedder_name])
+            raise RuntimeError(
+                f'Embedding "{embedder_name}" is missing. Call analyze_file() first to compute embeddings.'
+            )
         return self._emb[embedder_name]
 
     def ensure_prediction(self, extractor_name: str) -> PredictionRecord:
         if extractor_name not in self._pred:
             ex = self._by_name.get(extractor_name)
             if ex is None:
-                raise UnknownEmbedderError(f"Extracteur «{extractor_name}» inconnu.")
+                raise UnknownEmbedderError(f'Unknown extractor "{extractor_name}".')
             emb_mod = self._embedder_model(ex)
-            self.ensure_embedding(emb_mod.name)
-            self._pred[extractor_name] = run_label_head(self._emb[emb_mod.name], ex)
+            emb_tensor = self.embedding(emb_mod.name)
+            self._pred[extractor_name] = run_label_head(emb_tensor, ex)
         return self._pred[extractor_name]
 
-    def ensure_classical(self) -> None:
-        if not self._classical_done:
-            self._classical_values = run_classical(self._audio, self._classical)
-            self._classical_done = True
+    def _ensure_classical_key(self, key: str) -> Any:
+        if key in self._classical_cache:
+            return self._classical_cache[key]
+        audio = self._audio
+        if key == "meta_bpm":
+            from essentia.standard import PercivalBpmEstimator
+
+            v = int(round(float(PercivalBpmEstimator()(audio))))
+        elif key == "meta_key":
+            from essentia.standard import KeyExtractor
+
+            k, _scale, _ = KeyExtractor()(audio)
+            v = str(k)
+        elif key == "meta_scale":
+            from essentia.standard import KeyExtractor
+
+            _k, scale, _ = KeyExtractor()(audio)
+            v = str(scale)
+        elif key == "meta_danceability":
+            from essentia.standard import Danceability
+
+            d, _ = Danceability()(audio)
+            v = float(d)
+        else:
+            return None
+        self._classical_cache[key] = v
+        return v
 
     def _needs_extractor(self, ex: LabelExtractor, keys: set[str] | None) -> bool:
         if keys is None:
@@ -277,10 +289,17 @@ class LazyMetaEngine:
         out: dict[str, Any] = {}
         keys = keys_needed
 
-        classical_keys = ("meta_bpm", "meta_key", "meta_scale", "meta_danceability")
-        if keys is None or any(k in keys for k in classical_keys):
-            self.ensure_classical()
-            out.update(self._classical_values)
+        if keys is None:
+            for ck in _CLASSICAL_KEYS:
+                val = self._ensure_classical_key(ck)
+                if val is not None:
+                    out[ck] = val
+        else:
+            for ck in _CLASSICAL_KEYS:
+                if ck in keys:
+                    val = self._ensure_classical_key(ck)
+                    if val is not None:
+                        out[ck] = val
 
         for ex in self._extractors:
             if not self._needs_extractor(ex, keys):
@@ -314,17 +333,8 @@ class LazyMetaEngine:
         return out
 
     def get_one_meta(self, key: str) -> Any:
-        """Retourne une clé ; calcule le minimum nécessaire, puis complète si manquant."""
-
         k = key if key.startswith("meta_") else f"meta_{key}"
         m = self.build_flat_meta({k})
         if k not in m:
             m = self.build_flat_meta(None)
         return m.get(k)
-
-    def get_one_meta(self, key: str) -> Any:
-        k = key if key.startswith("meta_") else f"meta_{key}"
-        full = self.build_flat_meta({k})
-        if k not in full:
-            full = self.build_flat_meta(None)
-        return full.get(k)

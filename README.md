@@ -1,18 +1,18 @@
 # musikalize
 
-Bibliothèque Python pour **analyser** des fichiers audio (Essentia + TensorFlow : EffNet, MAEST, têtes de classification), **lire/écrire des tags** (Mutagen) et **exporter** vers plusieurs formats (ffmpeg) avec un **gabarit de chemins**.
+Python library to **analyze** audio with **Essentia + TensorFlow** (EffNet Discogs, MAEST, classifier heads), **read/write tags** (Mutagen), and **transcode** with **ffmpeg** using path templates.
 
-Les modèles pré-entraînés Essentia sont soumis à la licence **CC BY-NC-SA 4.0** — voir [Essentia models](https://essentia.upf.edu/documentation/models.html).
+Pre-trained **Essentia model weights** are licensed under **CC BY-NC-SA 4.0** (non-commercial). See [Essentia models](https://essentia.upf.edu/documentation/models.html).
 
-**Documentation détaillée des méthodes et des clés `meta_*` / `tag_*`** : [METADATA.md](METADATA.md).
+Full **API and metadata key reference**: [METADATA.md](METADATA.md).
 
-## Prérequis système
+## Requirements
 
-- **Python 3.10+** (ex. environnement **mamba** `py311` : `mamba activate py311`)
-- **ffmpeg** dans le `PATH`
-- Analyse ML : `pip install -e ".[tensorflow]"` (`essentia-tensorflow`)
+- Python 3.10+
+- `ffmpeg` on `PATH`
+- ML stack: `pip install -e ".[tensorflow]"` (`essentia-tensorflow`)
 
-## Installation
+## Install
 
 ```bash
 cd music_organizer
@@ -20,19 +20,21 @@ pip install -e .
 pip install -e ".[tensorflow]"
 ```
 
-## Téléchargement des modèles
+## Models
 
-Exemples : [discogs-effnet](https://essentia.upf.edu/models/feature-extractors/discogs-effnet/), modèles MAEST / genre 519, moods, etc. Les tenseurs `input` / `output` dépendent du fichier `.pb` : les renseigner dans `LabelExtractor` ou `ClassificationHeadSpec`.
+Download `.pb` / `.json` from [Essentia models](https://essentia.upf.edu/documentation/models.html) (e.g. [discogs-effnet](https://essentia.upf.edu/models/feature-extractors/discogs-effnet/), MAEST, genre/mood heads). Set `input_tensor` / `output_tensor` on each `LabelExtractor` to match the graph. For **MAEST embeddings**, use `EmbeddingModel(backend="maest", …)`; musikalize calls `**TensorflowPredictMAEST`** (not the generic `TensorflowPredict` pool API).
 
-## Nouvelle API : plusieurs embeddings + extracteurs (lazy)
+## Usage
 
-Les **embeddings** ne sont calculés que pour les modèles réellement utilisés par un extracteur. Les **prédictions** ne sont lancées que si une métadonnée correspondante est utilisée dans un gabarit ou via `music.label(...)` / `music.meta_`*.
+### Embeddings + label heads
+
+1. `**analyze_file()**` runs **every** `EmbeddingModel` once and caches the tensors.
+2. **Label heads** and **classical** descriptors (`meta_bpm`, etc.) run **only when** a template or `label()` needs them.
 
 ```python
 from pathlib import Path
 
 from musikalize import (
-    ClassicalConfig,
     EmbeddingModel,
     ExportConfig,
     LabelExtractor,
@@ -40,7 +42,7 @@ from musikalize import (
     TaggingConfig,
 )
 
-data = Path("/home/user/Documents/Prog/music process/data")  # exemple
+data = Path("./data")
 
 effnet = EmbeddingModel(
     name="effnet",
@@ -51,9 +53,8 @@ effnet = EmbeddingModel(
 maest = EmbeddingModel(
     name="maest",
     embedding_model=data / "discogs-maest-30s-pw-519l-2.pb",
-    embedding_output="PartitionedCall/Identity_12",
-    backend="generic_tf",
-    input_tensor="serving_default_input_1",  # ajuster selon le graphe
+    embedding_output="PartitionedCall/Identity_12",  # adjust to your graph
+    backend="maest",
 )
 
 genre400 = LabelExtractor(
@@ -64,35 +65,16 @@ genre400 = LabelExtractor(
     labels_path=data / "genre_discogs400-discogs-effnet-1.json",
     genre_main=True,
     genre_count=5,
-    count_thold_policy="intersection",
-)
-genre519 = LabelExtractor(
-    name="genre519",
-    category="genre",
-    embedder="maest",
-    graph_path=data / "genre_discogs519-discogs-maest-30s-pw-519l-1.pb",
-    labels_path=data / "genre_discogs519-discogs-maest-30s-pw-519l-1.json",
-    count_thold_policy="union",
-)
-
-happy = LabelExtractor(
-    name="happy",
-    category="mood",
-    embedder="effnet",
-    graph_path=data / "mood_happy-discogs-effnet-1.pb",
-    labels_path=data / "mood_happy-discogs-effnet-1.json",
-    output_tensor="model/Softmax",
 )
 
 music = MusicProcess(
-    audio_file=data / "audio.wav",
+    audio_file=data / "track.mp3",
     embedders=[effnet, maest],
-    label_extractors=[genre400, genre519, happy],
-    classical_config=ClassicalConfig(bpm=True, key=True),
+    label_extractors=[genre400],
     tagging_config=TaggingConfig(
         genre="{meta_genre_main}",
         artist="{tag_artist}",
-        comment="{meta_mood};{meta_genre_genre400}",
+        title="{tag_title}",
     ),
     export_config=ExportConfig(
         output_root=Path("./output"),
@@ -103,103 +85,65 @@ music = MusicProcess(
 )
 
 music.process_file()
-# Accès ponctuel : music.meta_bpm, music.label("meta_mood_happy"), music.label(["meta_key", "meta_bpm"])
+# Or step by step: read_tags, load_audio, analyze_file, tag_file, export_file
+# music.meta_bpm, music.label("meta_mood_happy"), music.label(["meta_key", "meta_bpm"])
 ```
 
-### Backends d’embedding
+### Templates
 
+Only Python `str.format` syntax: `{tag_artist}`, `{meta_genre}`, `{tag_track_number:02d}`, etc.
 
-| `EmbeddingModel.backend` | Comportement                                                 |
-| ------------------------ | ------------------------------------------------------------ |
-| `effnet_discogs`         | `TensorflowPredictEffnetDiscogs`                             |
-| `maest` / `generic_tf`   | `TensorflowPredict` avec `input_tensor` + `embedding_output` |
+### Export and tags
 
+Unless you map a field in `TaggingConfig`, its value is **not** recomputed: **export metadata starts from the original file tags** and **overrides** only the logical keys produced by `tag_file()` (e.g. if you only set the `genre` template, other tags stay as on disk). ffmpeg receives the merged map (see `merge_logical_tags_for_export` in `tagging.py`).
 
-Ajuster `input_tensor` / `embedding_output` selon la doc du modèle.
+### Parallel batch
 
-## API historique : un seul `ModelPath`
-
-Toujours supportée : un EffNet + liste de `ClassificationHeadSpec` + `AnalysisConfig` (post-traitement genre global).
+`process_files_parallel` takes the same `embedders` / `label_extractors` / configs and pickles them into workers. Use a `if __name__ == "__main__":` guard on some platforms.
 
 ```python
-from musikalize import (
-    AnalysisConfig,
-    ClassificationHeadSpec,
-    ExportConfig,
-    ModelPath,
-    MusicProcess,
-    TaggingConfig,
-)
+from pathlib import Path
 
-model_path = ModelPath(
-    embedding_model=Path("./data/discogs-effnet-bs64-1.pb"),
-    embedding_output="PartitionedCall:1",
-    heads=(
-        ClassificationHeadSpec(
-            name="genre",
-            graph_path=Path("./data/genre_discogs400-discogs-effnet-1.pb"),
-            labels_path=Path("./data/genre_discogs400-discogs-effnet-1.json"),
-        ),
-    ),
-)
+from musikalize import ExportConfig, MusicProcess, TaggingConfig, list_audio_files, process_files_parallel
 
-music = MusicProcess(
-    audio_file=Path("./data/track.mp3"),
-    model_path=model_path,
-    analysis_config=AnalysisConfig(genre_main=True, genre_count=5, bpm=True, key=True),
-    tagging_config=TaggingConfig(genre="{meta_genre}", artist="{tag_artist}"),
-    export_config=ExportConfig(output_root=Path("./output"), formats="opus"),
-)
-music.process_file()
-```
-
-### Étapes séparées (notebook)
-
-```python
-music.read_tags()
-music.load_audio()
-music.analyze_file()
-music.tag_file()
-music.export_file()
-```
-
-Propriétés : `music.analysis` (API historique), `music.tags_original`, `music.tags_resolved`, `music.audio_mono`.
-
-## Gabarits
-
-- `{tag_*}` : tags fichier.
-- `{meta_*}` : métadonnées (voir [METADATA.md](METADATA.md)).
-- Crochets `[meta_genre]` acceptés.
-
-## Parallélisation
-
-`process_files_parallel` accepte aujourd’hui surtout l’API `**ModelPath**` (sérialisation simple). Pour la nouvelle API (`embedders` + `label_extractors`), enchaîner une boucle sur `list_audio_files` dans le même processus ou étendre le worker (PR / évolution prévue).
-
-```python
-from musikalize import ExportConfig, ModelPath, MusicProcess, TaggingConfig, list_audio_files, process_files_parallel
-
+# build embedders / extractors as above, then:
 paths = list_audio_files(Path("./library"))
 process_files_parallel(
     paths,
-    model_path=ModelPath(embedding_model=Path("./data/discogs-effnet-bs64-1.pb")),
+    embedders=[effnet],
+    label_extractors=[genre400],
     tagging_config=TaggingConfig(),
     export_config=ExportConfig(output_root=Path("./out"), formats="opus"),
     max_workers=4,
 )
 ```
 
-Sous Windows / certains shells, protéger le multiprocessing avec `if __name__ == "__main__":`.
-
 ## Tests
 
 ```bash
-mamba activate py311   # ou votre env
 PYTHONPATH=src python3 -m unittest discover -s tests -v
 ```
 
-## Limites
+## Embedding backends
 
-- **WMA** : tags en écriture partiels.
-- **Tenseurs TF** : à ajuster par modèle.
-- **MAEST / graphes exotiques** : vérifier `input_tensor` et `backend` (`generic_tf`).
 
+| `EmbeddingModel.backend` | Essentia algorithm                                                                                |
+| ------------------------ | ------------------------------------------------------------------------------------------------- |
+| `effnet_discogs`         | `TensorflowPredictEffnetDiscogs`                                                                  |
+| `maest`                  | `TensorflowPredictMAEST` (optional: `patch_size`, `patch_hop_size`, `batch_size`, `input_tensor`) |
+
+
+## Limitations
+
+- **WMA** and some containers: limited tag support.
+- **ReplayGain in `meta_*`**: read from tags only; loudness **computation** is future work.
+- **Tensor names** vary per `.pb`; adjust `LabelExtractor` / `EmbeddingModel` accordingly.
+
+## Licensing your project
+
+- **This codebase** (musikalize) can use a permissive license such as **MIT** or **Apache-2.0** for the **code you write**, as long as you do not bundle Essentia’s **NC** model weights in a way that violates **CC BY-NC-SA 4.0** (non-commercial, share-alike for derivatives of those models, attribution required).
+- **Essentia** itself is licensed under **AGPL-3.0** (with optional commercial licensing from UPF). If you **link/import** `essentia-tensorflow` and distribute your app, AGPL obligations may apply to **your** distributed work unless you use a proprietary build under a separate license from the authors.
+- **Mutagen** is MIT. **ffmpeg** is LGPL/GPL depending on build—typical CLI use from Python does not embed ffmpeg into your Python package, but check your distribution model.
+- **Common choice**: MIT for your library + clear README notes: “Model weights CC BY-NC-SA; not for commercial use without a separate license path; Essentia AGPL applies when using the pip package.”
+
+This is not legal advice; confirm with a lawyer for commercial products.

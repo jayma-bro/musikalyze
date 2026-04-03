@@ -1,19 +1,19 @@
-"""Erreurs explicites pour musikalize."""
+"""Explicit errors for musikalize."""
 
 from __future__ import annotations
 
 
 class MusikalizeError(Exception):
-    """Erreur de base."""
+    """Base error."""
 
 
 class UnknownEmbedderError(MusikalizeError):
-    """Référence d'embedding inconnue (nom absent du registre)."""
+    """Unknown embedding name in the registry."""
 
 
 class UnknownMetaKeyError(MusikalizeError):
-    """Clé de métadonnée inconnue ou non calculable."""
+    """Unknown or unavailable metadata key."""
 
 
 class PredictionError(MusikalizeError):
-    """Échec d'inférence TensorFlow / Essentia."""
+    """TensorFlow / Essentia inference failure."""

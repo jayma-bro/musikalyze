@@ -1,4 +1,4 @@
-"""Export transcodage via ffmpeg, métadonnées et gabarits de chemin."""
+"""Transcode with ffmpeg, metadata, and path templates."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ def _merge_options(fmt: str, user: Mapping[str, dict[str, str]]) -> dict[str, st
 
 
 def logical_tags_to_tag_prefix(resolved: Mapping[str, str]) -> dict[str, Any]:
-    """``artist`` → ``tag_artist`` pour gabarits de chemin."""
+    """Map logical ``artist`` → ``tag_artist`` for path templates."""
 
     return {f"tag_{k}": v for k, v in resolved.items() if v is not None}
 
@@ -39,7 +39,7 @@ def build_output_path(
     *,
     sanitize: bool = True,
 ) -> Path:
-    """Construit un chemin relatif depuis le gabarit (avec ``{ext}``)."""
+    """Build a relative path from the template (includes ``{ext}``)."""
 
     tag_pref = logical_tags_to_tag_prefix(resolved_tags)
     mapping = build_format_mapping(tag_pref, meta_map, ext=ext)
@@ -58,7 +58,7 @@ def export_audio(
     *,
     overwrite: bool = False,
 ) -> None:
-    """Transcode ``source`` vers ``dest`` avec ffmpeg."""
+    """Transcode ``source`` to ``dest`` with ffmpeg."""
 
     dest.parent.mkdir(parents=True, exist_ok=True)
     if dest.exists() and not overwrite:
@@ -96,6 +96,16 @@ def _ffmpeg_metadata_args(meta: Mapping[str, str]) -> dict[str, str]:
         "composer": "composer",
         "albumartist": "album_artist",
         "comment": "comment",
+        "lyrics": "lyrics",
+        "copyright": "copyright",
+        "publisher": "publisher",
+        "encodedby": "encoded_by",
+        "encoder": "encoder",
+        "isrc": "isrc",
+        "bpm": "bpm",
+        "mood": "mood",
+        "replaygain_track_gain": "REPLAYGAIN_TRACK_GAIN",
+        "replaygain_album_gain": "REPLAYGAIN_ALBUM_GAIN",
     }
     out: dict[str, str] = {}
     for logical, ff in key_map.items():
@@ -117,7 +127,7 @@ def export_multiple_formats(
     sanitize_paths: bool = True,
     overwrite: bool = False,
 ) -> list[Path]:
-    """Exporte ``source`` vers plusieurs formats sous ``output_root``."""
+    """Transcode ``source`` to one or more formats under ``output_root``."""
 
     fmts = [formats] if isinstance(formats, str) else list(formats)
     out_paths: list[Path] = []

@@ -1,4 +1,4 @@
-"""Opérations d'analyse partagées (sans effet de bord)."""
+"""Shared analysis helpers (pure functions)."""
 
 from __future__ import annotations
 
@@ -93,7 +93,7 @@ def select_genre_indices(
 
 
 def main_sub_from_label(label: str, separators: tuple[str, ...]) -> tuple[str, str]:
-    """Segment principal (avant premier séparateur) et sous-genre (dernier segment)."""
+    """Main segment (before first separator) and subgenre (last segment)."""
 
     s = label.strip()
     if not s:

@@ -1,9 +1,8 @@
-"""Tests gabarits et chemins."""
+"""Template and path helper tests."""
 
 import unittest
 
 from musikalize.templates import (
-    bracket_to_brace,
     build_format_mapping,
     extract_placeholder_keys,
     resolve_template,
@@ -13,8 +12,8 @@ from musikalize.templates import (
 
 
 class TestTemplates(unittest.TestCase):
-    def test_bracket_to_brace(self) -> None:
-        self.assertEqual(bracket_to_brace("[meta_genre]"), "{meta_genre}")
+    def test_extract_placeholder_keys(self) -> None:
+        self.assertIn("meta_genre", extract_placeholder_keys("{meta_genre}-{tag_artist:02d}"))
 
     def test_resolve_template_safe_missing(self) -> None:
         m = build_format_mapping({"artist": "A"}, {}, ext="opus")
@@ -27,9 +26,6 @@ class TestTemplates(unittest.TestCase):
     def test_build_format_mapping_track(self) -> None:
         m = build_format_mapping({"tracknumber": "3"}, {}, ext=None)
         self.assertEqual(m["tag_track_number"], 3)
-
-    def test_extract_placeholder_keys(self) -> None:
-        self.assertIn("meta_genre", extract_placeholder_keys("{meta_genre}-{tag_artist:02d}"))
 
 
 if __name__ == "__main__":

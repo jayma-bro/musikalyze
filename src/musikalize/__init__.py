@@ -1,14 +1,10 @@
-"""musikalize — analyse audio (Essentia), tags et export."""
+"""musikalize — Essentia-based audio analysis, tagging, and transcoding."""
 
 from musikalize.config import (
-    AnalysisConfig,
     AnalysisResult,
-    ClassicalConfig,
-    ClassificationHeadSpec,
     EmbeddingModel,
     ExportConfig,
     LabelExtractor,
-    ModelPath,
     TaggingConfig,
 )
 from musikalize.exceptions import (
@@ -19,16 +15,12 @@ from musikalize.exceptions import (
 )
 
 __all__ = [
-    "AnalysisConfig",
     "AnalysisResult",
-    "ClassicalConfig",
-    "ClassificationHeadSpec",
     "EmbeddingModel",
     "ExportConfig",
     "LabelExtractor",
-    "ModelPath",
-    "MusicProcess",
     "MusikalizeError",
+    "MusicProcess",
     "PredictionError",
     "TaggingConfig",
     "UnknownEmbedderError",
@@ -37,7 +29,7 @@ __all__ = [
     "process_files_parallel",
 ]
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 
 def __getattr__(name: str):

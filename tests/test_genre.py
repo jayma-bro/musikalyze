@@ -1,16 +1,16 @@
-"""Tests logique genre (sans Essentia)."""
+"""Genre string splitting tests (no Essentia)."""
 
 import unittest
+from types import SimpleNamespace
 
-from musikalize.analysis_ops import split_genre_label as _split_genre_label
-from musikalize.config import AnalysisConfig
+from musikalize.analysis_ops import split_genre_label
 
 
 class TestGenre(unittest.TestCase):
     def test_split_genre_main(self) -> None:
-        cfg = AnalysisConfig(genre_main=True, genre_separators=("---",))
+        cfg = SimpleNamespace(genre_main=True, genre_separators=("---",))
         self.assertEqual(
-            _split_genre_label(
+            split_genre_label(
                 "Rock---Post-Punk",
                 genre_main=cfg.genre_main,
                 separators=cfg.genre_separators,
@@ -19,9 +19,9 @@ class TestGenre(unittest.TestCase):
         )
 
     def test_split_genre_sub_only(self) -> None:
-        cfg = AnalysisConfig(genre_main=False, genre_separators=("---",))
+        cfg = SimpleNamespace(genre_main=False, genre_separators=("---",))
         self.assertEqual(
-            _split_genre_label(
+            split_genre_label(
                 "Rock---Post-Punk",
                 genre_main=cfg.genre_main,
                 separators=cfg.genre_separators,

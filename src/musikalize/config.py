@@ -1,4 +1,4 @@
-"""Configurations et résultats d'analyse typés."""
+"""Typed configuration objects."""
 
 from __future__ import annotations
 
@@ -6,26 +6,27 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, Mapping, Sequence, Union
 
-# ---------------------------------------------------------------------------
-# Nouvelle API : embeddings multiples + extracteurs de labels
-# ---------------------------------------------------------------------------
-
 
 @dataclass(frozen=True, slots=True)
 class EmbeddingModel:
-    """Modèle d'embedding (EffNet Discogs, MAEST, graphe TF générique)."""
+    """Embedding model (EffNet Discogs or MAEST)."""
 
     name: str
     embedding_model: Path
     embedding_output: str = "PartitionedCall:1"
-    backend: Literal["effnet_discogs", "maest", "generic_tf"] = "effnet_discogs"
+    backend: Literal["effnet_discogs", "maest"] = "effnet_discogs"
     input_tensor: str | None = None
-    """Pour ``generic_tf`` / MAEST : entrée du graphe (ex. ``serving_default_input_1``)."""
+    """MAEST only: TensorFlow input node name (default inside Essentia: mel patch input)."""
+
+    patch_size: int | None = None
+    patch_hop_size: int | None = None
+    batch_size: int | None = None
+    """MAEST patch/batch settings; leave unset to let Essentia infer from the graph path."""
 
 
 @dataclass(slots=True)
 class LabelExtractor:
-    """Tête de prédiction (genre, mood, autre) branchée sur un embedding nommé."""
+    """Classification / regression head on top of a named embedding."""
 
     name: str
     category: Literal["genre", "mood", "other"]
@@ -33,7 +34,6 @@ class LabelExtractor:
     graph_path: Path
     labels_path: Path | None = None
     label_names: Sequence[str] | None = None
-    """Remplace les libellés du JSON (même longueur que les classes ou tronqué)."""
 
     input_tensor: str = "serving_default_model_Placeholder"
     output_tensor: str = "PartitionedCall:0"
@@ -52,59 +52,9 @@ class LabelExtractor:
         return str(self.embedder)
 
 
-# ---------------------------------------------------------------------------
-# API historique
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True, slots=True)
-class ClassificationHeadSpec:
-    """Spécification d'un classifieur 2D (embeddings → logits/probas)."""
-
-    name: str
-    graph_path: Path
-    labels_path: Path | None = None
-    input_tensor: str = "serving_default_model_Placeholder"
-    output_tensor: str = "PartitionedCall:0"
-
-
-@dataclass(frozen=True, slots=True)
-class ModelPath:
-    """Chemins vers le modèle d'embedding EffNet et les têtes optionnelles."""
-
-    embedding_model: Path
-    embedding_output: str = "PartitionedCall:1"
-    heads: Sequence[ClassificationHeadSpec] = ()
-
-
-@dataclass(slots=True)
-class ClassicalConfig:
-    """Descripteurs classiques Essentia (calculés à la demande)."""
-
-    bpm: bool = True
-    key: bool = True
-    scale: bool = True
-    danceability_classical: bool = False
-
-
-@dataclass(slots=True)
-class AnalysisConfig:
-    """Paramètres d'analyse Essentia / TF (rétrocompat) et post-traitement genre."""
-
-    genre_main: bool = True
-    genre_count: int | None = 5
-    genre_thold: float | None = None
-    genre_join_separator: str = ";"
-    genre_separators: tuple[str, ...] = ("---", "//")
-    bpm: bool = True
-    key: bool = True
-    scale: bool = True
-    danceability_classical: bool = False
-
-
 @dataclass(slots=True)
 class TaggingConfig:
-    """Gabarits de tags : clés logiques → chaînes avec `{tag_*}` et `{meta_*}`."""
+    """Per-field templates using `{tag_*}` and `{meta_*}` (Python ``str.format`` syntax only)."""
 
     separator: str = ";"
     artist: str | None = "{tag_artist}"
@@ -121,7 +71,7 @@ class TaggingConfig:
 
 @dataclass(slots=True)
 class ExportConfig:
-    """Export audio et gabarit de chemin."""
+    """Transcoded output and path template."""
 
     output_root: Path
     formats: str | list[str] = "opus"
@@ -133,14 +83,6 @@ class ExportConfig:
 
 @dataclass(slots=True)
 class AnalysisResult:
-    """Résultat d'analyse : tenseurs agrégés pour gabarits et inspection."""
+    """Container for resolved metadata passed to tag templates."""
 
     meta: dict[str, Any] = field(default_factory=dict)
-    genre_labels: list[str] = field(default_factory=list)
-    genre_scores: dict[str, float] = field(default_factory=dict)
-    head_predictions: dict[str, Any] = field(default_factory=dict)
-    bpm: float | None = None
-    key_edma: str | None = None
-    scale_edma: str | None = None
-    danceability: float | None = None
-    embeddings: Any = None

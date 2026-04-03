@@ -1,4 +1,4 @@
-"""Lecture / écriture de tags et application des gabarits."""
+"""Read/write tags and apply templates."""
 
 from __future__ import annotations
 
@@ -10,7 +10,6 @@ from mutagen import File as MutagenFile
 from musikalize.config import AnalysisResult, TaggingConfig
 from musikalize.templates import build_format_mapping, resolve_template
 
-# Clés logiques → noms de tags mutagen / ffmpeg (minuscules)
 _LOGICAL_KEYS = (
     "artist",
     "title",
@@ -22,15 +21,52 @@ _LOGICAL_KEYS = (
     "composer",
     "albumartist",
     "comment",
+    "lyrics",
+    "copyright",
+    "publisher",
+    "encodedby",
+    "encoder",
+    "isrc",
+    "language",
+    "albumsort",
+    "artistsort",
+    "titlesort",
+    "website",
+    "bpm",
+    "mood",
+    "grouping",
+)
+
+_REPLAYGAIN_TAGS = (
+    "replaygain_track_gain",
+    "replaygain_track_peak",
+    "replaygain_album_gain",
+    "replaygain_album_peak",
+    "REPLAYGAIN_TRACK_GAIN",
+    "REPLAYGAIN_TRACK_PEAK",
+    "REPLAYGAIN_ALBUM_GAIN",
+    "REPLAYGAIN_ALBUM_PEAK",
 )
 
 
-def read_tags_raw(path: Path) -> dict[str, Any]:
-    """
-    Lit les tags courants dans un dict de clés logiques (minuscules).
+def _norm_text(val: Any) -> str | None:
+    if val is None:
+        return None
+    if isinstance(val, list) and val:
+        v0 = val[0]
+        if hasattr(v0, "text"):
+            t = v0.text
+            return str(t[0]).strip() if t else None
+        return str(v0).strip()
+    if hasattr(val, "text"):
+        t = val.text
+        return str(t[0]).strip() if t else None
+    s = str(val).strip()
+    return s or None
 
-    S'appuie sur l'API Mutagen quand les clés unifiées existent ; sinon mapping ID3 partiel.
-    """
+
+def read_tags_raw(path: Path) -> dict[str, Any]:
+    """Read common and extended logical tags from the audio file (best effort)."""
 
     f = MutagenFile(path)
     if f is None:
@@ -40,23 +76,23 @@ def read_tags_raw(path: Path) -> dict[str, Any]:
     if f.tags is None:
         return {}
 
-    def set_if(k: str, val: Any) -> None:
-        if val is None:
-            return
-        if isinstance(val, list) and val:
-            out[k] = val[0] if not hasattr(val[0], "text") else val[0].text[0]
-        elif hasattr(val, "text"):
-            out[k] = val.text[0] if val.text else ""
-        else:
-            out[k] = str(val)
-
     for key in _LOGICAL_KEYS:
         try:
-            set_if(key, f.get(key))
-        except (KeyError, TypeError, ValueError):
+            v = _norm_text(f.get(key))
+            if v:
+                out[key] = v
+        except (KeyError, TypeError, ValueError, AttributeError):
             pass
 
-    # ID3 bruts si pas de clés faciles
+    for key in _REPLAYGAIN_TAGS:
+        try:
+            v = _norm_text(f.get(key))
+            if v:
+                lk = key.lower()
+                out[lk] = v
+        except (KeyError, TypeError, ValueError, AttributeError):
+            pass
+
     if not out and hasattr(f.tags, "get"):
         id3_map = {
             "TIT2": "title",
@@ -69,21 +105,26 @@ def read_tags_raw(path: Path) -> dict[str, Any]:
             "TCOM": "composer",
             "TPE2": "albumartist",
             "COMM": "comment",
+            "TCOP": "copyright",
+            "TPUB": "publisher",
+            "TENC": "encodedby",
+            "TSRC": "isrc",
+            "TBPM": "bpm",
+            "TMOO": "mood",
         }
         for raw, logical in id3_map.items():
             try:
                 fr = f.tags.get(raw)
-                if fr is not None:
-                    set_if(logical, fr)
-            except (KeyError, TypeError, ValueError):
+                v = _norm_text(fr)
+                if v:
+                    out[logical] = v
+            except (KeyError, TypeError, ValueError, AttributeError):
                 pass
 
     return {k: v for k, v in out.items() if v is not None and str(v).strip() != ""}
 
 
 def tags_to_tag_prefix(flat: Mapping[str, Any]) -> dict[str, Any]:
-    """Préfixe `tag_` pour les clés logiques."""
-
     m: dict[str, Any] = {}
     for k, v in flat.items():
         key = k if str(k).startswith("tag_") else f"tag_{k}"
@@ -91,18 +132,49 @@ def tags_to_tag_prefix(flat: Mapping[str, Any]) -> dict[str, Any]:
     return m
 
 
+def merge_logical_tags_for_export(
+    original: Mapping[str, Any],
+    resolved: Mapping[str, str],
+) -> dict[str, str]:
+    """
+    Start from original file tags, then overlay fields produced by ``TaggingConfig``.
+
+    Unmentioned fields keep their original values; only keys present in ``resolved`` override.
+    """
+
+    out: dict[str, str] = {}
+    for k, v in original.items():
+        if v is None:
+            continue
+        s = str(v).strip()
+        if s:
+            out[k] = s
+    for k, v in resolved.items():
+        if v is not None and str(v).strip():
+            out[k] = str(v).strip()
+    return out
+
+
+def file_meta_from_tags(tags_logical: Mapping[str, Any], keys_needed: set[str]) -> dict[str, Any]:
+    """Expose selected on-file values as ``meta_*`` for templates (e.g. ReplayGain)."""
+
+    out: dict[str, Any] = {}
+    if not keys_needed:
+        return out
+    rg_track = tags_logical.get("replaygain_track_gain")
+    if rg_track and any(k.startswith("meta_replaygain") for k in keys_needed):
+        out["meta_replaygain_track"] = str(rg_track)
+    rg_album = tags_logical.get("replaygain_album_gain")
+    if rg_album and any(k == "meta_replaygain_album" or k.startswith("meta_replaygain_album") for k in keys_needed):
+        out["meta_replaygain_album"] = str(rg_album)
+    return out
+
+
 def apply_tagging_config(
     tag_map: Mapping[str, Any],
     analysis: AnalysisResult | None,
     cfg: TaggingConfig,
 ) -> dict[str, str]:
-    """
-    Produit un dict de champs résolus (clés logiques) à partir des gabarits.
-
-    ``tag_map`` : clés logiques (artist, …) ou déjà préfixées ``tag_*``.
-    Les méta viennent de ``analysis.meta`` (clés ``meta_*``).
-    """
-
     meta = (analysis.meta if analysis is not None else {}) or {}
     base = build_format_mapping(tag_map, meta, ext=None)
     resolved: dict[str, str] = {}
@@ -128,11 +200,9 @@ def apply_tagging_config(
 
 
 def write_tags_to_file(path: Path, tags: Mapping[str, str]) -> None:
-    """Écrit les tags (clés logiques) sur un fichier audio via Mutagen."""
-
     f = MutagenFile(path, easy=True)
     if f is None:
-        raise ValueError(f"Format non pris en charge pour écriture: {path}")
+        raise ValueError(f"Unsupported format for writing tags: {path}")
     for k, v in tags.items():
         if v is None or str(v).strip() == "":
             continue
@@ -147,8 +217,6 @@ def write_tags_to_file(path: Path, tags: Mapping[str, str]) -> None:
 
 
 def write_tags_to_file_safe(path: Path, tags: Mapping[str, str]) -> None:
-    """Écriture best-effort (ignore les clés non supportées)."""
-
     f = MutagenFile(path, easy=True)
     if f is None:
         return
