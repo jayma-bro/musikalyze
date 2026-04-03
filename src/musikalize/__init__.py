@@ -3,25 +3,41 @@
 from musikalize.config import (
     AnalysisConfig,
     AnalysisResult,
+    ClassicalConfig,
     ClassificationHeadSpec,
+    EmbeddingModel,
     ExportConfig,
+    LabelExtractor,
     ModelPath,
     TaggingConfig,
+)
+from musikalize.exceptions import (
+    MusikalizeError,
+    PredictionError,
+    UnknownEmbedderError,
+    UnknownMetaKeyError,
 )
 
 __all__ = [
     "AnalysisConfig",
     "AnalysisResult",
+    "ClassicalConfig",
     "ClassificationHeadSpec",
+    "EmbeddingModel",
     "ExportConfig",
+    "LabelExtractor",
     "ModelPath",
     "MusicProcess",
+    "MusikalizeError",
+    "PredictionError",
     "TaggingConfig",
+    "UnknownEmbedderError",
+    "UnknownMetaKeyError",
     "list_audio_files",
     "process_files_parallel",
 ]
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 
 def __getattr__(name: str):

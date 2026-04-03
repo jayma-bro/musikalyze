@@ -7,6 +7,20 @@ from typing import Any, Mapping
 
 # Crochets optionnels : [meta_genre] → {meta_genre}
 _BRACKET = re.compile(r"\[([a-zA-Z_][a-zA-Z0-9_]*)\]")
+# Placeholders {name} ou {name:02d} — groupe 1 = clé
+_FORMAT_FIELDS = re.compile(r"\{([^{}:]+)(?::[^}]*)?\}")
+
+
+def extract_placeholder_keys(*templates: str) -> set[str]:
+    """Retourne les noms de champs utilisés dans des gabarits ``str.format``."""
+
+    keys: set[str] = set()
+    for t in templates:
+        if not t:
+            continue
+        b = bracket_to_brace(t)
+        keys.update(_FORMAT_FIELDS.findall(b))
+    return keys
 
 
 def bracket_to_brace(template: str) -> str:

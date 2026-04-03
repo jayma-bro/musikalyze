@@ -2,7 +2,7 @@
 
 import unittest
 
-from musikalize.analysis import _split_genre_label
+from musikalize.analysis_ops import split_genre_label as _split_genre_label
 from musikalize.config import AnalysisConfig
 
 
