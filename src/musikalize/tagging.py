@@ -130,7 +130,8 @@ def tags_to_tag_prefix(flat: Mapping[str, Any]) -> dict[str, Any]:
         key = k if str(k).startswith("tag_") else f"tag_{k}"
         m[key] = v
     for k in ["tracknumber", "discnumber"]:
-        m[k+"_f"] = format_nbr(flat[k])
+        if k in m.keys():
+            m[f"{k}_f"] = format_nbr(flat[k])
     return m
 
 def format_nbr(s: str) -> str:
