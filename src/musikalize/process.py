@@ -155,15 +155,11 @@ class MusicProcess:
         raise AttributeError(f"{type(self).__name__!r} object has no attribute {name!r}")
 
     def analyze_file(self) -> LazyMetaEngine:
-        """Load audio if needed, then compute each registered embedding once."""
+        """Load audio if needed, then initialize engine."""
 
         if self._audio_mono is None:
             self.load_audio()
-        eng = self._engine()
-        if self._embedders:
-            eng.compute_all_embeddings()
-        self._embeddings_ready = True
-        return eng
+        return self._engine()
 
     def tag_file(self) -> dict[str, str]:
         if not self._tags_raw:

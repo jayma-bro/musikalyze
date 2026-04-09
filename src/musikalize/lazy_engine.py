@@ -227,12 +227,19 @@ class LazyMetaEngine:
         for name, model in self._embedders.items():
             if name not in self._emb:
                 self._emb[name] = compute_embedding(self._audio, model)
+    
+    def compute_embedding(self, embedder_name: str) -> None:
+        """Run a signe embedding model define by the name"""
+        if embedder_name not in self._emb:
+            for name, model in self._embedders.items():
+                if embedder_name == name:
+                    self._emb[name] = compute_embedding(self._audio, model)
+                    return
+            raise ValueError(f"embedding model named {embedder_name} is not found")
 
     def embedding(self, embedder_name: str) -> Any:
         if embedder_name not in self._emb:
-            raise RuntimeError(
-                f'Embedding "{embedder_name}" is missing. Call analyze_file() first to compute embeddings.'
-            )
+            self.compute_embedding(embedder_name)
         return self._emb[embedder_name]
 
     def ensure_prediction(self, extractor_name: str) -> PredictionRecord:
