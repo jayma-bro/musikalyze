@@ -14,7 +14,6 @@ from musikalize.analysis_ops import (
     mean_pool_time,
     probs_from_raw,
     select_genre_indices,
-    split_genre_label,
 )
 from musikalize.config import EmbeddingModel, LabelExtractor
 from musikalize.exceptions import PredictionError, UnknownEmbedderError
@@ -32,12 +31,16 @@ class PredictionRecord:
     category: Literal["genre", "mood", "other"]
     labels: list[str]
     probabilities: Any
-    top_label: str
-    top_score: float
+    top_label: list[str]
+    top_score: list[float]
     genre_strings: list[str] = field(default_factory=list)
     genre_mains: list[str] = field(default_factory=list)
     genre_subs: list[str] = field(default_factory=list)
 
+
+    def genre_extract(self, suffix: str | None = None, format: Literal["label", "score", "full"] = "label"):
+        print("ok")
+        
 
 def compute_embedding(audio: Any, emb: EmbeddingModel) -> Any:
     path = str(Path(emb.embedding_model).resolve())
@@ -93,8 +96,8 @@ def run_label_head(embeddings: Any, ex: LabelExtractor) -> PredictionRecord:
             category=ex.category,
             labels=labels or [lab],
             probabilities=probs,
-            top_label=str(val),
-            top_score=1.0,
+            top_label=[str(val)],
+            top_score=[1.0],
         )
 
     probs = probs_from_raw(pooled)
@@ -110,8 +113,8 @@ def run_label_head(embeddings: Any, ex: LabelExtractor) -> PredictionRecord:
         probs = probs[:n]
 
     top_i = int(np.argmax(probs)) if probs.size else 0
-    top_label = labels[top_i] if labels and top_i < len(labels) else str(top_i)
-    top_score = float(probs[top_i]) if probs.size else 0.0
+    top_label = [labels[top_i]] if labels and top_i < len(labels) else [str(top_i)]
+    top_score = [float(probs[top_i])] if probs.size else [0.0]
 
     rec = PredictionRecord(
         name=ex.name,
@@ -125,30 +128,13 @@ def run_label_head(embeddings: Any, ex: LabelExtractor) -> PredictionRecord:
     if ex.category == "genre" and labels:
         idxs = select_genre_indices(
             probs,
-            genre_count=ex.genre_count,
-            genre_thold=ex.genre_thold,
+            genre_count=ex.count,
+            genre_thold=ex.thold,
             policy=ex.count_thold_policy,
         )
-        seen: set[str] = set()
-        mains: list[str] = []
-        subs: list[str] = []
         for i in idxs:
-            lab = labels[i] if i < len(labels) else str(i)
-            for part in split_genre_label(
-                lab,
-                genre_main=ex.genre_main,
-                separators=ex.genre_separators,
-            ):
-                if part not in seen:
-                    seen.add(part)
-                    rec.genre_strings.append(part)
-            m, s = main_sub_from_label(lab, ex.genre_separators)
-            if m and m not in mains:
-                mains.append(m)
-            if s and s not in subs:
-                subs.append(s)
-        rec.genre_mains = mains
-        rec.genre_subs = subs
+            rec.top_label.append(labels[i] if i < len(labels) else str(i))
+            rec.top_score.append(probs[i])
 
     return rec
 
@@ -179,10 +165,17 @@ def flat_meta_from_record(ex: LabelExtractor, rec: PredictionRecord, list_sep: s
     }
 
     if ex.category == "genre":
-        joined = ex.genre_join_separator.join(rec.genre_strings) if rec.genre_strings else rec.top_label
-        out[base] = joined
-        out[f"{base}_main"] = ex.genre_join_separator.join(rec.genre_mains)
-        out[f"{base}_sub"] = ex.genre_join_separator.join(rec.genre_subs)
+        mains: list[str] = []
+        subs: list[str] = []
+        for lab in rec.top_label:
+            m, s = main_sub_from_label(lab, ex.genre_separators)
+            if m and m not in mains:
+                mains.append(m)
+            if s and s not in subs:
+                subs.append(s)
+        out[f"{base}_main"] = mains
+        out[f"{base}_sub"] = subs
+        out[base] = mains + subs
     else:
         out[base] = rec.top_label
 
@@ -281,23 +274,20 @@ class LazyMetaEngine:
         self._classical_cache[key] = v
         return v
 
-    def _needs_extractor(self, ex: LabelExtractor, keys: set[str] | None) -> bool:
+    def _needs_extractor(self, ex: LabelExtractor, keys: str | None) -> bool:
         if keys is None:
             return True
         base = meta_key_for_extractor(ex)
-        if "meta_genre" in keys or "meta_genre_main" in keys or "meta_genre_sub" in keys:
-            if ex.category == "genre":
-                return True
-        if "meta_mood" in keys and ex.category == "mood":
+        if keys.startswith("meta_genres") and ex.category == "genre":
             return True
-        for k in keys:
-            if k == base or k.startswith(base + "_"):
-                return True
+        if keys.startswith("meta_moods") and ex.category == "mood":
+            return True
+        if keys == base or keys.startswith(base + "_"):
+            return True
         return False
 
-    def build_flat_meta(self, keys: set[str] | None = None) -> dict[str, Any]:
+    def build_flat_meta(self, keys: str | None = None) -> dict[str, Any]:
         out: dict[str, Any] = {}
-        keys = keys
         if keys is None:
             for ck in _CLASSICAL_KEYS:
                 val = self._ensure_classical_key(ck)
@@ -311,14 +301,11 @@ class LazyMetaEngine:
                         out[ck] = val
 
         for ex in self._extractors:
-            if not self._needs_extractor(ex, keys):
-                continue
-            rec = self.ensure_prediction(ex.name)
-            out.update(flat_meta_from_record(ex, rec, self._list_join_sep))
+            if self._needs_extractor(ex, keys):
+                rec = self.ensure_prediction(ex.name)
+                out.update(flat_meta_from_record(ex, rec, self._list_join_sep))
 
-        if keys is None or any(
-            k in keys for k in ("meta_genre", "meta_genre_main", "meta_genre_sub")
-        ):
+        if keys is None or keys.startswith("meta_genres"):
             genre_ex = [e for e in self._extractors if e.category == "genre"]
             if genre_ex:
                 all_g: list[str] = []
@@ -329,20 +316,20 @@ class LazyMetaEngine:
                     all_g.extend(rec.genre_strings)
                     all_m.extend(rec.genre_mains)
                     all_s.extend(rec.genre_subs)
-                out["meta_genre"] = self._list_join_sep.join(dict.fromkeys(all_g))
-                out["meta_genre_main"] = self._list_join_sep.join(dict.fromkeys(all_m))
-                out["meta_genre_sub"] = self._list_join_sep.join(dict.fromkeys(all_s))
+                out["meta_genres"] = self._list_join_sep.join(dict.fromkeys(all_g))
+                out["meta_genres_main"] = self._list_join_sep.join(dict.fromkeys(all_m))
+                out["meta_genres_sub"] = self._list_join_sep.join(dict.fromkeys(all_s))
 
-        if keys is None or "meta_mood" in keys:
+        if keys is None or keys.startswith("meta_moods"):
             mood_ex = [e for e in self._extractors if e.category == "mood"]
             if mood_ex:
                 tops = [self.ensure_prediction(e.name).top_label for e in mood_ex]
-                out["meta_mood"] = self._list_join_sep.join(tops)
+                out["meta_moods"] = self._list_join_sep.join(tops)
 
         return out
 
     def get_one_meta(self, key: str) -> Any:
-        m = self.build_flat_meta({key})
+        m = self.build_flat_meta(key)
         if key not in m:
             m = self.build_flat_meta(None)
         return m.get(key)

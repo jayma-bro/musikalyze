@@ -43,24 +43,6 @@ def probs_from_raw(pooled: Any) -> Any:
     return pooled
 
 
-def split_genre_label(
-    label: str,
-    *,
-    genre_main: bool,
-    separators: tuple[str, ...],
-) -> list[str]:
-    s = label.strip()
-    if not s:
-        return []
-    for sep in separators:
-        if sep in s:
-            parts = [p.strip() for p in s.split(sep) if p.strip()]
-            if not genre_main and parts:
-                return [parts[-1]]
-            return parts
-    return [s]
-
-
 def select_genre_indices(
     probs: Any,
     *,

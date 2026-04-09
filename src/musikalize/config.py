@@ -39,11 +39,10 @@ class LabelExtractor:
     output_tensor: str = "PartitionedCall:0"
     task: Literal["classification", "regression", "multilabel"] = "classification"
 
-    genre_main: bool = True
-    genre_count: int | None = 5
-    genre_thold: float | None = None
+    count: int | None = 5
+    thold: float | None = None
     genre_separators: tuple[str, ...] = ("---", "//")
-    genre_join_separator: str = ";"
+    join_separator: str = ";"
     count_thold_policy: Literal["intersection", "union"] = "intersection"
 
     def resolved_embedder_name(self) -> str:
