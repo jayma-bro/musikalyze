@@ -129,8 +129,17 @@ def tags_to_tag_prefix(flat: Mapping[str, Any]) -> dict[str, Any]:
     for k, v in flat.items():
         key = k if str(k).startswith("tag_") else f"tag_{k}"
         m[key] = v
+    for k in ["tracknumber", "discnumber"]:
+        m[k+"_f"] = format_nbr(flat[k])
     return m
 
+def format_nbr(s: str) -> str:
+    if "/" in s:
+        return s.split("/")[0]
+    s = s.lstrip("0")
+    if not s:
+        return ""
+    return s if len(s) > 1 else f"0{s}"
 
 def merge_logical_tags_for_export(
     original: Mapping[str, Any],
