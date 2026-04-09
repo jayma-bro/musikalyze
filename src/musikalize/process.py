@@ -95,6 +95,7 @@ class MusicProcess:
                 self._embedders,
                 self._label_extractors,
                 list_join_sep=self.tagging_config.separator,
+                audio_path=self.audio_path,
             )
         return self._lazy_engine
 

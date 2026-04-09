@@ -199,6 +199,7 @@ class LazyMetaEngine:
         extractors: Sequence[LabelExtractor],
         *,
         list_join_sep: str = ";",
+        audio_path: Path,
     ) -> None:
         self._audio = audio
         self._embedders = dict(embedders)
@@ -209,6 +210,7 @@ class LazyMetaEngine:
         self._emb: dict[str, Any] = {}
         self._pred: dict[str, PredictionRecord] = {}
         self._classical_cache: dict[str, Any] = {}
+        self._audio_path: Path = audio_path
 
     def _embedder_model(self, ex: LabelExtractor) -> EmbeddingModel:
         name = ex.resolved_embedder_name()
@@ -248,9 +250,10 @@ class LazyMetaEngine:
             return self._classical_cache[key]
         audio = self._audio
         if key == "meta_bpm":
-            from essentia.standard import PercivalBpmEstimator
-
-            v = int(round(float(PercivalBpmEstimator()(audio))))
+            from essentia.standard import RhythmExtractor2013, MonoLoader
+            new_audio = MonoLoader(filename=str(self._audio_path.resolve()))()
+            bpm, beats, beats_confidence, _, beats_intervals = RhythmExtractor2013(method="multifeature")(new_audio)
+            v = int(round(float(bpm)))
         elif key == "meta_key":
             from essentia.standard import KeyExtractor
 
@@ -285,10 +288,9 @@ class LazyMetaEngine:
                 return True
         return False
 
-    def build_flat_meta(self, keys_needed: set[str] | None = None) -> dict[str, Any]:
+    def build_flat_meta(self, keys: set[str] | None = None) -> dict[str, Any]:
         out: dict[str, Any] = {}
-        keys = keys_needed
-
+        keys = keys
         if keys is None:
             for ck in _CLASSICAL_KEYS:
                 val = self._ensure_classical_key(ck)
@@ -333,8 +335,7 @@ class LazyMetaEngine:
         return out
 
     def get_one_meta(self, key: str) -> Any:
-        k = key if key.startswith("meta_") else f"meta_{key}"
-        m = self.build_flat_meta({k})
-        if k not in m:
+        m = self.build_flat_meta({key})
+        if key not in m:
             m = self.build_flat_meta(None)
-        return m.get(k)
+        return m.get(key)
