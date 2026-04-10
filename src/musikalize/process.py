@@ -85,6 +85,21 @@ class MusicProcess:
     @property
     def tags_resolved(self) -> dict[str, str]:
         return dict(self._tags_resolved)
+    
+    @property
+    def labels(self) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        if not self._tags_raw:
+            self.read_tags()
+        out.update(self._tags_prefixed)
+        if self._audio_mono is None:
+            self.load_audio()
+        if not self._embeddings_ready:
+            self.analyze_file()
+        out.update(self._engine().build_flat_meta())
+        return out
+        
+
 
     def _engine(self) -> LazyMetaEngine:
         if self._lazy_engine is None:
@@ -119,7 +134,7 @@ class MusicProcess:
         self._meta_cache = meta
         return meta
 
-    def label(self, key: Union[str, Sequence[str]]) -> Any:
+    def label(self, key: Union[str, Sequence[str]]) -> Union[str, Sequence[Any]]:
         if isinstance(key, str):
             keys = [key]
             single = True
