@@ -62,8 +62,8 @@ class TaggingConfig:
     genre: str | None = "{meta_genre}"
     composer: str | None = None
     date: str | None = "{tag_date}"
-    tracknumber: str | None = "{tag_tracknumber_f}"
-    discnumber: str | None = "{tag_discnumber_f}"
+    tracknumber: str | None = "{tag_tracknumber}"
+    discnumber: str | None = "{tag_discnumber}"
     comment: str | None = None
     extra: Mapping[str, str | None] = field(default_factory=dict)
 
