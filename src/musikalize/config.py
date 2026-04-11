@@ -29,8 +29,8 @@ class LabelExtractor:
     """Classification / regression head on top of a named embedding."""
 
     name: str
-    category: Literal["genre", "mood", "other"]
-    embedder: Union[str, EmbeddingModel]
+    category: Literal["genre", "mood", "other"] = "other"
+    embedder_name: str
     graph_path: Path
     labels_path: Path | None = None
     label_names: Sequence[str] | None = None
@@ -41,14 +41,8 @@ class LabelExtractor:
 
     count: int | None = 5
     thold: float | None = None
-    genre_separators: tuple[str, ...] = ("---", "//")
-    join_separator: str = ";"
     count_thold_policy: Literal["intersection", "union"] = "intersection"
-
-    def resolved_embedder_name(self) -> str:
-        if isinstance(self.embedder, EmbeddingModel):
-            return self.embedder.name
-        return str(self.embedder)
+    genre_separators: tuple[str, ...] = ("---", "//")
 
 
 @dataclass(slots=True)

@@ -208,7 +208,7 @@ class LazyMetaEngine:
         self._audio_path: Path = audio_path
 
     def _embedder_model(self, ex: LabelExtractor) -> EmbeddingModel:
-        name = ex.resolved_embedder_name()
+        name = ex.embedder_name
         if name not in self._embedders:
             known = ", ".join(sorted(self._embedders)) or "(none)"
             raise UnknownEmbedderError(
