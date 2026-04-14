@@ -29,14 +29,14 @@ class LabelExtractor:
     """Classification / regression head on top of a named embedding."""
 
     name: str
-    category: Literal["genre", "mood", "other"] = "other"
     embedder_name: str
     graph_path: Path
     labels_path: Path | None = None
     label_names: Sequence[str] | None = None
+    category: Literal["genre", "mood", "other"] = "other"
 
-    input_tensor: str = "serving_default_model_Placeholder"
-    output_tensor: str = "PartitionedCall:0"
+    input_tensor: str = "model/Placeholder"
+    output_tensor: str = "model/Sigmoid"
     task: Literal["classification", "regression", "multilabel"] = "classification"
 
     count: int | None = 5
@@ -49,7 +49,6 @@ class LabelExtractor:
 class TaggingConfig:
     """Per-field templates using `{tag_*}` and `{meta_*}` (Python ``str.format`` syntax only)."""
 
-    separator: str = ";"
     artist: str | None = "{tag_artist}"
     title: str | None = "{tag_title}"
     album: str | None = "{tag_album}"

@@ -147,7 +147,7 @@ def meta_key_for_extractor(ex: LabelExtractor) -> str:
     return f"meta_{ex.name}"
 
 
-def flat_meta_from_record(ex: LabelExtractor, rec: PredictionRecord, list_sep: str) -> dict[str, Any]:
+def flat_meta_from_record(ex: LabelExtractor, rec: PredictionRecord) -> dict[str, Any]:
     base = meta_key_for_extractor(ex)
     dprob = {
         rec.top_label[i]: float(rec.top_score[i])
@@ -193,14 +193,12 @@ class LazyMetaEngine:
         embedders: Mapping[str, EmbeddingModel],
         extractors: Sequence[LabelExtractor],
         *,
-        list_join_sep: str = ";",
         audio_path: Path,
     ) -> None:
         self._audio = audio
         self._embedders = dict(embedders)
         self._extractors = list(extractors)
         self._extractors_by_name = {e.name: e for e in extractors}
-        self._list_join_sep = list_join_sep
 
         self._emb: dict[str, Any] = {}
         self._extractors_pred: dict[str, PredictionRecord] = {}
@@ -301,7 +299,7 @@ class LazyMetaEngine:
         for ex in self._extractors:
             if self._needs_extractor(ex, key):
                 rec = self.ensure_prediction(ex.name)
-                out.update(flat_meta_from_record(ex, rec, self._list_join_sep))
+                out.update(flat_meta_from_record(ex, rec))
         
         genres_base = "meta_genres"
         if key is None or key.startswith(genres_base):
@@ -311,7 +309,7 @@ class LazyMetaEngine:
                 for ex in genres_ex:
                     rec = self.ensure_prediction(ex.name)
                     base = meta_key_for_extractor(ex)
-                    genre_dict = flat_meta_from_record(ex, rec, self._list_join_sep)
+                    genre_dict = flat_meta_from_record(ex, rec)
                     for item in genre_dict:
                         suffix = item.replace(base, "")
                         if (genres_base + suffix) not in genres_dict.keys() and not item.endswith("_str"):
@@ -333,12 +331,13 @@ class LazyMetaEngine:
                     genres_dict_str[f"{item}_str"] = json.dumps(genres_dict[item], ensure_ascii=False)
                 genres_dict.update(genres_dict_str)
                 out.update(genres_dict)
-
-        if key is None or key.startswith("meta_moods"):
+                
+        moods_base = "meta_moods"
+        if key is None or key.startswith(moods_base):
             mood_ex = [e for e in self._extractors if e.category == "mood"]
             if mood_ex:
                 tops = [self.ensure_prediction(e.name).top_label for e in mood_ex]
-                out["meta_moods"] = self._list_join_sep.join(tops)
+                out[moods_base] = tops
 
         return out
 
@@ -346,5 +345,4 @@ class LazyMetaEngine:
         m = self.build_flat_meta(key)
         if key not in m:
             m = self.build_flat_meta(None)
-        print(m)
         return m.get(key)
