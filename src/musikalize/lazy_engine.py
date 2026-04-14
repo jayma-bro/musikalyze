@@ -305,40 +305,47 @@ class LazyMetaEngine:
         if key is None or key.startswith(genres_base):
             genres_ex = [e for e in self._extractors if e.category == "genre"]
             if genres_ex:
-                genres_dict = {}
-                for ex in genres_ex:
-                    rec = self.ensure_prediction(ex.name)
-                    base = meta_key_for_extractor(ex)
-                    genre_dict = flat_meta_from_record(ex, rec)
-                    for item in genre_dict:
-                        suffix = item.replace(base, "")
-                        if (genres_base + suffix) not in genres_dict.keys() and not item.endswith("_str"):
-                            genres_dict[genres_base + suffix] = genre_dict[item]
-                        else:
-                            if type(genre_dict[item]) == list:
-                                genres_dict[genres_base + suffix] = genres_dict[genres_base + suffix] + genre_dict[item]
-                            elif type(genre_dict[item]) == dict:
-                                genres_dict[genres_base + suffix] = genres_dict[genres_base + suffix].update(genre_dict[item])
-                            elif type(genre_dict[item]) == str and not item.endswith("_str"):
-                                if type(genres_dict[genres_base + suffix]) == str:
-                                    genres_dict[genres_base + suffix] = [genres_dict[genres_base + suffix], genre_dict[item]]
-                                else:
-                                    genres_dict[genres_base + suffix] = genres_dict[genres_base + suffix] + genre_dict[item]
-                            else:
-                                continue
-                genres_dict_str = {}
-                for item in genres_dict:
-                    genres_dict_str[f"{item}_str"] = json.dumps(genres_dict[item], ensure_ascii=False)
-                genres_dict.update(genres_dict_str)
+                genres_dict = self._meta_extractor(genres_ex, genres_base)
                 out.update(genres_dict)
                 
         moods_base = "meta_moods"
         if key is None or key.startswith(moods_base):
-            mood_ex = [e for e in self._extractors if e.category == "mood"]
-            if mood_ex:
-                tops = [self.ensure_prediction(e.name).top_label for e in mood_ex]
-                out[moods_base] = tops
+            moods_ex = [e for e in self._extractors if e.category == "mood"]
+            if moods_ex:
+                moods_dict = self._meta_extractor(moods_ex, moods_base)
+                out.update(moods_dict)
 
+        return out
+    
+    def _meta_extractor(self, extractors: Sequence[LabelExtractor], meta_base: str) -> dict[str, Any]:
+        out: dict[str, Any] = {}
+        for ex in extractors:
+            rec = self.ensure_prediction(ex.name)
+            base = meta_key_for_extractor(ex)
+            active_ex = flat_meta_from_record(ex, rec)
+            for item in active_ex:
+                suffix = item.replace(base, "")
+                if item.endswith("_str"):
+                    continue
+                elif (meta_base + suffix) not in out.keys():
+                    out[meta_base + suffix] = active_ex[item]
+                else:
+                    if type(active_ex[item]) == list:
+                        out[meta_base + suffix] = out[meta_base + suffix] + active_ex[item]
+                    elif type(active_ex[item]) == dict:
+                        out[meta_base + suffix].update(active_ex[item])
+                    elif type(active_ex[item]) == str:
+                        if type(out[meta_base + suffix]) == str:
+                            out[meta_base + suffix] = [out[meta_base + suffix], active_ex[item]]
+                        else:
+                            out[meta_base + suffix] = out[meta_base + suffix] + active_ex[item]
+                    else:
+                        print("format not str, list or dict. so skiped")
+                        continue
+        out_str = {}
+        for item in out:
+            out_str[f"{item}_str"] = json.dumps(out[item], ensure_ascii=False)
+        out.update(out_str)
         return out
 
     def get_one_meta(self, key: str) -> Any:
