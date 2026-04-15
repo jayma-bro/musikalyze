@@ -68,7 +68,8 @@ def compute_embedding(audio: Any, emb: EmbeddingModel) -> Any:
 
 def run_label_head(embeddings: Any, ex: LabelExtractor) -> PredictionRecord:
     import numpy as np
-    from essentia.standard import TensorflowPredict2D
+    from essentia import Pool
+    from essentia.standard import TensorflowPredict2D, TensorflowPredict
 
     labels: list[str] = []
     if ex.label_names is not None:
@@ -76,14 +77,28 @@ def run_label_head(embeddings: Any, ex: LabelExtractor) -> PredictionRecord:
     elif ex.labels_path is not None:
         labels = load_label_list(Path(ex.labels_path))
 
-    try:
-        raw = TensorflowPredict2D(
-            graphFilename=str(Path(ex.graph_path).resolve()),
-            input=ex.input_tensor,
-            output=ex.output_tensor,
-        )(embeddings)
-    except Exception as e:
-        raise PredictionError(f'Head "{ex.name}": {e}') from e
+    if ex.kind == "TfPred":
+        pool = Pool()
+        pool.set(ex.input_tensor, embeddings)
+        try:
+            raw = TensorflowPredict(
+                graphFilename=str(Path(ex.graph_path).resolve()),
+                inputs=[ex.input_tensor],
+                outputs=[ex.output_tensor],
+            )(pool)[ex.output_tensor]
+        except Exception as e:
+            raise PredictionError(f'Head "{ex.name}" with {ex.kind}: {e}') from e
+    elif ex.kind == "TfPred2D":
+        try:
+            raw = TensorflowPredict2D(
+                graphFilename=str(Path(ex.graph_path).resolve()),
+                input=ex.input_tensor,
+                output=ex.output_tensor,
+            )(embeddings)
+        except Exception as e:
+            raise PredictionError(f'Head "{ex.name}" with {ex.kind}: {e}') from e
+    else:
+        raise Exception("Extractor's kind not found")
 
     pooled = mean_pool_time(np.asarray(raw))
 
@@ -324,29 +339,64 @@ class LazyMetaEngine:
             base = meta_key_for_extractor(ex)
             active_ex = flat_meta_from_record(ex, rec)
             for item in active_ex:
-                suffix = item.replace(base, "")
                 if item.endswith("_str"):
                     continue
-                elif (meta_base + suffix) not in out.keys():
-                    out[meta_base + suffix] = active_ex[item]
+                suffix = item.replace(base, "")
+                base_suffix = meta_base + suffix
+                value = active_ex[item]
+                if base_suffix not in out:
+                    out[base_suffix] = value
                 else:
-                    if type(active_ex[item]) == list:
-                        out[meta_base + suffix] = out[meta_base + suffix] + active_ex[item]
-                    elif type(active_ex[item]) == dict:
-                        out[meta_base + suffix].update(active_ex[item])
-                    elif type(active_ex[item]) == str:
-                        if type(out[meta_base + suffix]) == str:
-                            out[meta_base + suffix] = [out[meta_base + suffix], active_ex[item]]
-                        else:
-                            out[meta_base + suffix] = out[meta_base + suffix] + active_ex[item]
-                    else:
-                        print("format not str, list or dict. so skiped")
+                    try:
+                        out[base_suffix] = self._merge_values(out[base_suffix], value)
+                    except TypeError as e:
+                        print(f"Error for {base_suffix} : {e}")
                         continue
+            # for item in active_ex:
+            #     suffix = item.replace(base, "")
+            #     if item.endswith("_str"):
+            #         continue
+            #     elif (base_suf) not in out.keys():
+            #         out[base_suf] = active_ex[item]
+            #     else:
+            #         if type(active_ex[item]) == list:
+            #             out[base_suf] = out[base_suf] + active_ex[item]
+            #         elif type(active_ex[item]) == dict:
+            #             out[base_suf].update(active_ex[item])
+            #         elif type(active_ex[item]) == str:
+            #             if type(out[base_suf]) == str:
+            #                 out[base_suf] = [out[base_suf], active_ex[item]]
+            #             else:
+            #                 out[base_suf] = out[base_suf] + active_ex[item]
+            #         else:
+            #             print("format not str, list or dict. so skiped")
+            #             continue
         out_str = {}
         for item in out:
             out_str[f"{item}_str"] = json.dumps(out[item], ensure_ascii=False)
         out.update(out_str)
         return out
+
+    def _merge_values(self, existing: Union[List, Dict, str], new: Union[List, Dict, str]) -> Union[List, Dict]:
+        """Merge tow values"""
+        if isinstance(new, list):
+            existing_list = [existing] if not isinstance(existing, list) else existing
+            return list(set(existing_list + new))
+        elif isinstance(new, dict):
+            if isinstance(existing, dict):
+                existing.update(new)
+                return existing
+            else:
+                raise TypeError(f"Type conflict : {type(existing)} vs dict")
+        elif isinstance(new, str):
+            if isinstance(existing, str):
+                return list({existing, new})
+            elif isinstance(existing, list):
+                return list(set(existing + [new]))
+            else:
+                raise TypeError(f"Type conflict : {type(existing)} vs str")
+        else:
+            raise TypeError(f"Type not managed : {type(new)}")
 
     def get_one_meta(self, key: str) -> Any:
         m = self.build_flat_meta(key)

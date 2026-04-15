@@ -37,6 +37,7 @@ class LabelExtractor:
 
     input_tensor: str = "model/Placeholder"
     output_tensor: str = "model/Sigmoid"
+    kind: Literal["TfPred", "TfPred2D"] = "TfPred2D"
     task: Literal["classification", "regression", "multilabel"] = "classification"
 
     count: int | None = 5
