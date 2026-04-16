@@ -40,9 +40,9 @@ class LabelExtractor:
     kind: Literal["TfPred", "TfPred2D"] = "TfPred2D"
     task: Literal["classification", "regression", "multilabel"] = "classification"
 
-    count: int | None = 5
-    thold: float | None = None
-    count_thold_policy: Literal["intersection", "union"] = "intersection"
+    count: int = 1
+    thold: float = 1.0
+    count_thold_policy: Literal["intersection", "union"] = "union"
     genre_separators: tuple[str, ...] = ("---", "//")
 
 

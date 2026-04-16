@@ -13,7 +13,8 @@ from musikalize.analysis_ops import (
     main_sub_from_label,
     mean_pool_time,
     probs_from_raw,
-    select_genre_indices,
+    merge_values,
+    stringify,
 )
 from musikalize.config import EmbeddingModel, LabelExtractor
 from musikalize.exceptions import PredictionError, UnknownEmbedderError
@@ -71,11 +72,11 @@ def run_label_head(embeddings: Any, ex: LabelExtractor) -> PredictionRecord:
     from essentia import Pool
     from essentia.standard import TensorflowPredict2D, TensorflowPredict
 
-    labels: list[str] = []
+    raw_labels: list[str] = []
     if ex.label_names is not None:
-        labels = [str(x) for x in ex.label_names]
+        raw_labels = [str(x) for x in ex.label_names]
     elif ex.labels_path is not None:
-        labels = load_label_list(Path(ex.labels_path))
+        raw_labels = load_label_list(Path(ex.labels_path))
 
     if ex.kind == "TfPred":
         pool = Pool()
@@ -101,57 +102,51 @@ def run_label_head(embeddings: Any, ex: LabelExtractor) -> PredictionRecord:
         raise Exception("Extractor's kind not found")
 
     pooled = mean_pool_time(np.asarray(raw))
-
+    probabilities = []
+    top_label = []
+    top_score = []
     if ex.task == "regression" and pooled.size <= 2:
-        val = float(np.ravel(pooled)[0])
-        lab = labels[0] if labels else str(val)
-        probs = np.array([1.0], dtype=np.float64)
-        return PredictionRecord(
-            name=ex.name,
-            category=ex.category,
-            labels=labels or [lab],
-            probabilities=probs,
-            top_label=[str(val)],
-            top_score=[1.0],
-        )
+        probabilities = [float(pooled[0])]
+        index = int(min(int(prob * len(raw_labels)), n - 1))
+        top_label=[raw_labels[index]]
+        top_score=[1.0]
 
     probs = probs_from_raw(pooled)
-    if labels and len(labels) != probs.size:
+    order = np.argsort(-probs)
+    if raw_labels and len(raw_labels) != probs.size:
         log.warning(
             'Label count (%d) != probability count (%d) for "%s"; truncating.',
-            len(labels),
+            len(raw_labels),
             probs.size,
             ex.name,
         )
-        n = min(len(labels), probs.size)
-        labels = labels[:n]
+        n = min(len(raw_labels), probs.size)
+        raw_labels = raw_labels[:n]
         probs = probs[:n]
 
-    top_i = int(np.argmax(probs)) if probs.size else 0
-    top_label = [labels[top_i]] if labels and top_i < len(labels) else [str(top_i)]
-    top_score = [float(probs[top_i])] if probs.size else [0.0]
+    if ex.task == "classification":
+        top_i = int(np.argmax(probs))
+        labels=[raw_labels[i] for i in order]
+        probabilities=probs[order].tolist()
+        top_label=[raw_labels[top_i]]
+        top_score=[float(probs[top_i])]
+    elif ex.task == "multilabel":
+        thold_count = len([i for i in order if probs[i] >= ex.thold])
+        idxs = max(ex.count, thold_count) if ex.count_thold_policy == "union" else min(ex.count, thold_count)
+        top_order = order[:idxs]
+        labels=[raw_labels[i] for i in order]
+        probabilities=probs[order].tolist()
+        top_label=[raw_labels[i] for i in top_order]
+        top_score=probs[top_order].tolist()
 
-    rec = PredictionRecord(
-        name=ex.name,
-        category=ex.category,
-        labels=labels,
-        probabilities=probs,
-        top_label=top_label,
-        top_score=top_score,
-    )
-
-    if ex.category == "genre" and labels:
-        idxs = select_genre_indices(
-            probs,
-            genre_count=ex.count,
-            genre_thold=ex.thold,
-            policy=ex.count_thold_policy,
+    return PredictionRecord(
+            name=ex.name,
+            category=ex.category,
+            labels=labels,
+            probabilities=probabilities,
+            top_label=top_label,
+            top_score=top_score,
         )
-        for i in idxs:
-            rec.top_label.append(labels[i] if i < len(labels) else str(i))
-            rec.top_score.append(probs[i])
-
-    return rec
 
 
 def meta_key_for_extractor(ex: LabelExtractor) -> str:
@@ -168,10 +163,14 @@ def flat_meta_from_record(ex: LabelExtractor, rec: PredictionRecord) -> dict[str
         rec.top_label[i]: float(rec.top_score[i])
         for i in range(min(len(rec.top_label), len(rec.top_score)))
     }
-
+    dprob_all = {
+        rec.labels[i]: float(rec.probabilities[i])
+        for i in range(min(len(rec.labels), len(rec.probabilities)))
+    }
     out: dict[str, Any] = {
         f"{base}_val": rec.top_score,
         f"{base}_dict": dprob,
+        f"{base}_all": dprob_all,
         base: rec.top_label
     }
 
@@ -184,18 +183,10 @@ def flat_meta_from_record(ex: LabelExtractor, rec: PredictionRecord) -> dict[str
                 mains.append(m)
             if s and s not in subs:
                 subs.append(s)
-        dprob_all = {
-            rec.labels[i]: float(rec.probabilities[i])
-            for i in range(min(len(rec.labels), len(rec.probabilities)))
-        }
         out[f"{base}_main"] = mains
         out[f"{base}_sub"] = subs
-        out[f"{base}_all"] = dprob_all
         out[base] = mains + subs
-    out_str = {}
-    for item in out:
-        out_str[f"{item}_str"] = json.dumps(out[item], ensure_ascii=False)
-    out.update(out_str)
+    out.update(stringify(out))
     return out
 
 
@@ -348,55 +339,12 @@ class LazyMetaEngine:
                     out[base_suffix] = value
                 else:
                     try:
-                        out[base_suffix] = self._merge_values(out[base_suffix], value)
+                        out[base_suffix] = merge_values(out[base_suffix], value)
                     except TypeError as e:
                         print(f"Error for {base_suffix} : {e}")
                         continue
-            # for item in active_ex:
-            #     suffix = item.replace(base, "")
-            #     if item.endswith("_str"):
-            #         continue
-            #     elif (base_suf) not in out.keys():
-            #         out[base_suf] = active_ex[item]
-            #     else:
-            #         if type(active_ex[item]) == list:
-            #             out[base_suf] = out[base_suf] + active_ex[item]
-            #         elif type(active_ex[item]) == dict:
-            #             out[base_suf].update(active_ex[item])
-            #         elif type(active_ex[item]) == str:
-            #             if type(out[base_suf]) == str:
-            #                 out[base_suf] = [out[base_suf], active_ex[item]]
-            #             else:
-            #                 out[base_suf] = out[base_suf] + active_ex[item]
-            #         else:
-            #             print("format not str, list or dict. so skiped")
-            #             continue
-        out_str = {}
-        for item in out:
-            out_str[f"{item}_str"] = json.dumps(out[item], ensure_ascii=False)
-        out.update(out_str)
+        out.update(stringify(out))
         return out
-
-    def _merge_values(self, existing: Union[List, Dict, str], new: Union[List, Dict, str]) -> Union[List, Dict]:
-        """Merge tow values"""
-        if isinstance(new, list):
-            existing_list = [existing] if not isinstance(existing, list) else existing
-            return list(set(existing_list + new))
-        elif isinstance(new, dict):
-            if isinstance(existing, dict):
-                existing.update(new)
-                return existing
-            else:
-                raise TypeError(f"Type conflict : {type(existing)} vs dict")
-        elif isinstance(new, str):
-            if isinstance(existing, str):
-                return list({existing, new})
-            elif isinstance(existing, list):
-                return list(set(existing + [new]))
-            else:
-                raise TypeError(f"Type conflict : {type(existing)} vs str")
-        else:
-            raise TypeError(f"Type not managed : {type(new)}")
 
     def get_one_meta(self, key: str) -> Any:
         m = self.build_flat_meta(key)

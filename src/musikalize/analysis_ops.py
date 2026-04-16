@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, Dict
 
 
 def load_label_list(labels_path: Path) -> list[str]:
@@ -43,37 +43,6 @@ def probs_from_raw(pooled: Any) -> Any:
     return pooled
 
 
-def select_genre_indices(
-    probs: Any,
-    *,
-    genre_count: int | None,
-    genre_thold: float | None,
-    policy: Literal["intersection", "union"],
-) -> list[int]:
-    import numpy as np
-
-    probs = np.asarray(probs, dtype=np.float64)
-    order = np.argsort(-probs)
-    order_list = [int(i) for i in order]
-
-    if policy == "intersection":
-        if genre_thold is not None:
-            order_list = [i for i in order_list if probs[i] >= genre_thold]
-        limit = genre_count if genre_count is not None else len(order_list)
-        return order_list[:limit]
-
-    # union: seuil OU top-k
-    by_thold = [i for i in order_list if genre_thold is None or probs[i] >= genre_thold]
-    topk = order_list[: genre_count] if genre_count is not None else order_list
-    merged: list[int] = []
-    seen: set[int] = set()
-    for i in by_thold + topk:
-        if i not in seen:
-            seen.add(i)
-            merged.append(i)
-    return merged
-
-
 def main_sub_from_label(label: str, separators: tuple[str, ...]) -> tuple[str, str]:
     """Main segment (before first separator) and subgenre (last segment)."""
 
@@ -88,3 +57,30 @@ def main_sub_from_label(label: str, separators: tuple[str, ...]) -> tuple[str, s
             if len(parts) == 1:
                 return parts[0], ""
     return s, ""
+
+def merge_values(existing: Union[List, Dict, str], new: Union[List, Dict, str]) -> Union[List, Dict]:
+    """Merge tow values"""
+    if isinstance(new, list):
+        existing_list = [existing] if not isinstance(existing, list) else existing
+        return list(set(existing_list + new))
+    elif isinstance(new, dict):
+        if isinstance(existing, dict):
+            existing.update(new)
+            return existing
+        else:
+            raise TypeError(f"Type conflict : {type(existing)} vs dict")
+    elif isinstance(new, str):
+        if isinstance(existing, str):
+            return list({existing, new})
+        elif isinstance(existing, list):
+            return list(set(existing + [new]))
+        else:
+            raise TypeError(f"Type conflict : {type(existing)} vs str")
+    else:
+        raise TypeError(f"Type not managed : {type(new)}")
+
+def stringify(dictionary: Dict[str, Any]) -> Dict[str, str]:
+    out = {}
+    for item in dictionary:
+        out[f"{item}_str"] = json.dumps(dictionary[item], ensure_ascii=False)
+    return(out)
