@@ -79,6 +79,15 @@ def merge_values(existing: Union[List, Dict, str], new: Union[List, Dict, str]) 
     else:
         raise TypeError(f"Type not managed : {type(new)}")
 
+
+def meta_key_base(obj: LabelExtractor | PredictionRecord) -> str:
+    if obj.category == "mood":
+        return f"meta_mood_{obj.name}"
+    if obj.category == "genre":
+        return f"meta_genre_{obj.name}"
+    return f"meta_{obj.name}"
+
+
 def stringify(dictionary: Dict[str, Any]) -> Dict[str, str]:
     out = {}
     for item in dictionary:

@@ -6,6 +6,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, Mapping, Sequence, Union
 
+from musikalize.analysis_ops import (
+    main_sub_from_label,
+    meta_key_base,
+    stringify,
+)
+
 
 @dataclass(frozen=True, slots=True)
 class EmbeddingModel:
@@ -43,7 +49,49 @@ class LabelExtractor:
     count: int = 1
     thold: float = 1.0
     count_thold_policy: Literal["intersection", "union"] = "union"
-    genre_separators: tuple[str, ...] = ("---", "//")
+
+@dataclass
+class PredictionRecord:
+    """Information predicted by the extractor"""
+    name: str
+    category: Literal["genre", "mood", "classical", "other"]
+    labels: list[str]
+    probabilities: list[float]
+    top_label: list[str]
+    top_score: list[float]
+
+    @property
+    def flat_meta_from_record(self) -> dict[str, Any]:
+        base = meta_key_base(self)
+        dprob = {
+            self.top_label[i]: float(self.top_score[i])
+            for i in range(min(len(self.top_label), len(self.top_score)))
+        }
+        dprob_all = {
+            self.labels[i]: float(self.probabilities[i])
+            for i in range(min(len(self.labels), len(self.probabilities)))
+        }
+        out: dict[str, Any] = {
+            f"{base}_val": self.top_score,
+            f"{base}_dict": dprob,
+            f"{base}_all": dprob_all,
+            base: self.top_label
+        }
+
+        if self.category == "genre":
+            mains: list[str] = []
+            subs: list[str] = []
+            for lab in self.top_label:
+                m, s = main_sub_from_label(lab, ("---", "//"))
+                if m and m not in mains:
+                    mains.append(m)
+                if s and s not in subs:
+                    subs.append(s)
+            out[f"{base}_main"] = mains
+            out[f"{base}_sub"] = subs
+            out[base] = mains + subs
+        out.update(stringify(out))
+        return out
 
 
 @dataclass(slots=True)

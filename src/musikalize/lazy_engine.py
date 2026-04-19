@@ -10,13 +10,13 @@ from typing import Any, Literal, Mapping, Sequence
 
 from musikalize.analysis_ops import (
     load_label_list,
-    main_sub_from_label,
     mean_pool_time,
     probs_from_raw,
     merge_values,
+    meta_key_base,
     stringify,
 )
-from musikalize.config import EmbeddingModel, LabelExtractor
+from musikalize.config import EmbeddingModel, LabelExtractor, PredictionRecord
 from musikalize.exceptions import PredictionError, UnknownEmbedderError
 
 log = logging.getLogger(__name__)
@@ -24,23 +24,6 @@ log = logging.getLogger(__name__)
 _CLASSICAL_KEYS = frozenset(
     {"meta_bpm", "meta_key", "meta_scale", "meta_danceability"}
 )
-
-
-@dataclass
-class PredictionRecord:
-    name: str
-    category: Literal["genre", "mood", "other"]
-    labels: list[str]
-    probabilities: Any
-    top_label: list[str]
-    top_score: list[float]
-    genre_strings: list[str] = field(default_factory=list)
-    genre_mains: list[str] = field(default_factory=list)
-    genre_subs: list[str] = field(default_factory=list)
-
-
-    def genre_extract(self, suffix: str | None = None, format: Literal["label", "score", "full"] = "label"):
-        print("ok")
         
 
 def compute_embedding(audio: Any, emb: EmbeddingModel) -> Any:
@@ -150,48 +133,6 @@ def run_label_head(embeddings: Any, ex: LabelExtractor) -> PredictionRecord:
             top_score=top_score,
         )
 
-
-def meta_key_for_extractor(ex: LabelExtractor) -> str:
-    if ex.category == "mood":
-        return f"meta_mood_{ex.name}"
-    if ex.category == "genre":
-        return f"meta_genre_{ex.name}"
-    return f"meta_{ex.name}"
-
-
-def flat_meta_from_record(ex: LabelExtractor, rec: PredictionRecord) -> dict[str, Any]:
-    base = meta_key_for_extractor(ex)
-    dprob = {
-        rec.top_label[i]: float(rec.top_score[i])
-        for i in range(min(len(rec.top_label), len(rec.top_score)))
-    }
-    dprob_all = {
-        rec.labels[i]: float(rec.probabilities[i])
-        for i in range(min(len(rec.labels), len(rec.probabilities)))
-    }
-    out: dict[str, Any] = {
-        f"{base}_val": rec.top_score,
-        f"{base}_dict": dprob,
-        f"{base}_all": dprob_all,
-        base: rec.top_label
-    }
-
-    if ex.category == "genre":
-        mains: list[str] = []
-        subs: list[str] = []
-        for lab in rec.top_label:
-            m, s = main_sub_from_label(lab, ex.genre_separators)
-            if m and m not in mains:
-                mains.append(m)
-            if s and s not in subs:
-                subs.append(s)
-        out[f"{base}_main"] = mains
-        out[f"{base}_sub"] = subs
-        out[base] = mains + subs
-    out.update(stringify(out))
-    return out
-
-
 class LazyMetaEngine:
     """Embeddings are computed once via ``compute_all_embeddings()``; heads and classical features are lazy."""
 
@@ -209,8 +150,7 @@ class LazyMetaEngine:
         self._extractors_by_name = {e.name: e for e in extractors}
 
         self._emb: dict[str, Any] = {}
-        self._extractors_pred: dict[str, PredictionRecord] = {}
-        self._classical_cache: dict[str, Any] = {}
+        self._pred: dict[str, PredictionRecord] = {}
         self._audio_path: Path = audio_path
 
     def _embedder_model(self, ex: LabelExtractor) -> EmbeddingModel:
@@ -244,48 +184,66 @@ class LazyMetaEngine:
         return self._emb[embedder_name]
 
     def ensure_prediction(self, extractor_name: str) -> PredictionRecord:
-        if extractor_name not in self._extractors_pred:
+        if extractor_name not in self._pred:
             ex = self._extractors_by_name.get(extractor_name)
             if ex is None:
                 raise UnknownEmbedderError(f'Unknown extractor "{extractor_name}".')
             emb_mod = self._embedder_model(ex)
             emb_tensor = self.embedding(emb_mod.name)
-            self._extractors_pred[extractor_name] = run_label_head(emb_tensor, ex)
-        return self._extractors_pred[extractor_name]
+            self._pred[extractor_name] = run_label_head(emb_tensor, ex)
+        return self._pred[extractor_name]
 
     def _ensure_classical_key(self, key: str) -> Any:
-        if key in self._classical_cache:
-            return self._classical_cache[key]
-        audio = self._audio
-        if key == "meta_bpm":
+        for pred in self._pred:
+            if self._pred[pred].category == "classical" and key.startswith(meta_key_base(self._pred[pred])):
+                return self._pred[pred].flat_meta_from_record
+        
+        pred = PredictionRecord(
+            name="",
+            category="classical",
+            labels=[],
+            probabilities=[1.0],
+            top_label=[],
+            top_score=[1.0],
+        )
+        if key.startswith("meta_bpm"):
             from essentia.standard import RhythmExtractor2013, MonoLoader
+
             new_audio = MonoLoader(filename=str(self._audio_path.resolve()))()
             bpm, beats, beats_confidence, _, beats_intervals = RhythmExtractor2013(method="multifeature")(new_audio)
-            v = int(round(float(bpm)))
+            pred.name = "bpm"
+            pred.labels.append(str(int(round(float(bpm)))))
+            pred.top_label = pred.labels
         elif key == "meta_key":
             from essentia.standard import KeyExtractor
 
-            k, _scale, _ = KeyExtractor()(audio)
-            v = str(k)
+            k, _scale, _ = KeyExtractor()(self._audio)
+            pred.name = "key"
+            pred.labels.append(str(k))
+            pred.top_label = pred.labels
         elif key == "meta_scale":
             from essentia.standard import KeyExtractor
 
-            _k, scale, _ = KeyExtractor()(audio)
-            v = str(scale)
+            _k, scale, _ = KeyExtractor()(self._audio)
+            pred.name = "scale"
+            pred.labels.append(str(scale))
+            pred.top_label = pred.labels
         elif key == "meta_danceability":
             from essentia.standard import Danceability
 
-            d, _ = Danceability()(audio)
-            v = float(d)
+            d, _ = Danceability()(self._audio)
+            pred.name = "danceability"
+            pred.labels.append(str(float(d)))
+            pred.top_label = pred.labels
         else:
             return None
-        self._classical_cache[key] = v
-        return v
+        self._pred[pred.name] = pred
+        return pred.flat_meta_from_record
 
     def _needs_extractor(self, ex: LabelExtractor, key: str | None) -> bool:
         if key is None:
             return True
-        base = meta_key_for_extractor(ex)
+        base = meta_key_base(ex)
         if key == base or key.startswith(base + "_"):
             return True
         return False
@@ -299,15 +257,14 @@ class LazyMetaEngine:
                     out[ck] = val
         else:
             for ck in _CLASSICAL_KEYS:
-                if ck in key:
-                    val = self._ensure_classical_key(ck)
-                    if val is not None:
-                        out[ck] = val
+                if key.startswith(ck):
+                    out.update(self._ensure_classical_key(ck))
+        
 
         for ex in self._extractors:
             if self._needs_extractor(ex, key):
                 rec = self.ensure_prediction(ex.name)
-                out.update(flat_meta_from_record(ex, rec))
+                out.update(rec.flat_meta_from_record)
         
         genres_base = "meta_genres"
         if key is None or key.startswith(genres_base):
@@ -329,8 +286,8 @@ class LazyMetaEngine:
         out: dict[str, Any] = {}
         for ex in extractors:
             rec = self.ensure_prediction(ex.name)
-            base = meta_key_for_extractor(ex)
-            active_ex = flat_meta_from_record(ex, rec)
+            base = meta_key_base(ex)
+            active_ex = rec.flat_meta_from_record
             for item in active_ex:
                 if item.endswith("_str"):
                     continue
