@@ -102,14 +102,16 @@ def run_label_head(embeddings: Any, ex: LabelExtractor) -> PredictionRecord:
         raise Exception("Extractor's kind not found")
 
     pooled = mean_pool_time(np.asarray(raw))
+    labels = []
     probabilities = []
     top_label = []
     top_score = []
     if ex.task == "regression" and pooled.size <= 2:
         probabilities = [float(pooled[0])]
-        index = int(min(int(prob * len(raw_labels)), n - 1))
-        top_label=[raw_labels[index]]
-        top_score=[1.0]
+        index = int(min(int(probabilities[0] * len(raw_labels)), len(raw_labels) - 1))
+        labels=[raw_labels[index]]
+        top_label=labels
+        top_score=[1.0 + probabilities[0]]
 
     probs = probs_from_raw(pooled)
     order = np.argsort(-probs)
