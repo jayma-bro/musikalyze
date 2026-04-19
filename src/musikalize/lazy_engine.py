@@ -11,7 +11,6 @@ from typing import Any, Literal, Mapping, Sequence
 from musikalize.analysis_ops import (
     load_label_list,
     mean_pool_time,
-    probs_from_raw,
     merge_values,
     meta_key_base,
     stringify,
@@ -86,49 +85,48 @@ def run_label_head(embeddings: Any, ex: LabelExtractor) -> PredictionRecord:
 
     pooled = mean_pool_time(np.asarray(raw))
     labels = []
-    probabilities = []
+    score = []
     top_label = []
     top_score = []
     if ex.task == "regression" and pooled.size <= 2:
-        probabilities = [float(pooled[0])]
-        index = int(min(int(probabilities[0] * len(raw_labels)), len(raw_labels) - 1))
+        score = [float(pooled[0])]
+        index = int(min(int(score[0] * len(raw_labels)), len(raw_labels) - 1))
         labels=[raw_labels[index]]
         top_label=labels
-        top_score=[1.0 + probabilities[0]]
+        top_score=[1.0 + score[0]]
 
-    probs = probs_from_raw(pooled)
-    order = np.argsort(-probs)
-    if raw_labels and len(raw_labels) != probs.size:
+    order = np.argsort(-pooled)
+    if raw_labels and len(raw_labels) != pooled.size:
         log.warning(
             'Label count (%d) != probability count (%d) for "%s"; truncating.',
             len(raw_labels),
-            probs.size,
+            pooled.size,
             ex.name,
         )
-        n = min(len(raw_labels), probs.size)
+        n = min(len(raw_labels), pooled.size)
         raw_labels = raw_labels[:n]
-        probs = probs[:n]
+        pooled = pooled[:n]
 
     if ex.task == "classification":
-        top_i = int(np.argmax(probs))
+        top_i = int(np.argmax(pooled))
         labels=[raw_labels[i] for i in order]
-        probabilities=probs[order].tolist()
+        score=pooled[order].tolist()
         top_label=[raw_labels[top_i]]
-        top_score=[float(probs[top_i])]
+        top_score=[float(pooled[top_i])]
     elif ex.task == "multilabel":
-        thold_count = len([i for i in order if probs[i] >= ex.thold])
+        thold_count = len([i for i in order if pooled[i] >= ex.thold])
         idxs = max(ex.count, thold_count) if ex.count_thold_policy == "union" else min(ex.count, thold_count)
         top_order = order[:idxs]
         labels=[raw_labels[i] for i in order]
-        probabilities=probs[order].tolist()
+        score=pooled[order].tolist()
         top_label=[raw_labels[i] for i in top_order]
-        top_score=probs[top_order].tolist()
+        top_score=pooled[top_order].tolist()
 
     return PredictionRecord(
             name=ex.name,
             category=ex.category,
             labels=labels,
-            probabilities=probabilities,
+            score=score,
             top_label=top_label,
             top_score=top_score,
         )
@@ -202,7 +200,7 @@ class LazyMetaEngine:
             name="",
             category="classical",
             labels=[],
-            probabilities=[1.0],
+            score=[1.0],
             top_label=[],
             top_score=[1.0],
         )

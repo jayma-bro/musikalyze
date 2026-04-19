@@ -29,7 +29,7 @@ def mean_pool_time(pred: Any) -> Any:
         return np.mean(x, axis=(0, 1))
     return np.mean(x.reshape(-1, x.shape[-1]), axis=0)
 
-
+# not used
 def probs_from_raw(pooled: Any) -> Any:
     import numpy as np
 

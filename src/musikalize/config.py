@@ -56,7 +56,7 @@ class PredictionRecord:
     name: str
     category: Literal["genre", "mood", "classical", "other"]
     labels: list[str]
-    probabilities: list[float]
+    score: list[float]
     top_label: list[str]
     top_score: list[float]
 
@@ -68,8 +68,8 @@ class PredictionRecord:
             for i in range(min(len(self.top_label), len(self.top_score)))
         }
         dprob_all = {
-            self.labels[i]: float(self.probabilities[i])
-            for i in range(min(len(self.labels), len(self.probabilities)))
+            self.labels[i]: float(self.score[i])
+            for i in range(min(len(self.labels), len(self.score)))
         }
         out: dict[str, Any] = {
             f"{base}_val": self.top_score,
