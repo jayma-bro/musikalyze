@@ -91,5 +91,5 @@ def meta_key_base(obj: LabelExtractor | PredictionRecord) -> str:
 def stringify(dictionary: Dict[str, Any]) -> Dict[str, str]:
     out = {}
     for item in dictionary:
-        out[f"{item}_str"] = json.dumps(dictionary[item], ensure_ascii=False)
+        out[f"{item}_str"] = dictionary[item] if type(dictionary[item]) is str else json.dumps(dictionary[item], ensure_ascii=False)
     return(out)

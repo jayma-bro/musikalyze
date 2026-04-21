@@ -126,9 +126,10 @@ def run_label_head(embeddings: Any, ex: LabelExtractor) -> PredictionRecord:
             name=ex.name,
             category=ex.category,
             labels=labels,
-            score=score,
+            score=[round(n, 2) for n in score],
             top_label=top_label,
-            top_score=top_score,
+            top_score=[round(n, 2) for n in top_score],
+            sep=ex.separator,
         )
 
 class LazyMetaEngine:
@@ -203,6 +204,7 @@ class LazyMetaEngine:
             score=[1.0],
             top_label=[],
             top_score=[1.0],
+            sep=""
         )
         if key.startswith("meta_bpm"):
             from essentia.standard import RhythmExtractor2013, MonoLoader

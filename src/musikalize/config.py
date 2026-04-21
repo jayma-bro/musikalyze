@@ -46,6 +46,7 @@ class LabelExtractor:
     kind: Literal["TfPred", "TfPred2D"] = "TfPred2D"
     task: Literal["classification", "regression", "multilabel"] = "classification"
 
+    separator: str = ";"
     count: int = 1
     thold: float = 1.0
     count_thold_policy: Literal["intersection", "union"] = "union"
@@ -59,6 +60,7 @@ class PredictionRecord:
     score: list[float]
     top_label: list[str]
     top_score: list[float]
+    sep: str
 
     @property
     def flat_meta_from_record(self) -> dict[str, Any]:
@@ -72,10 +74,10 @@ class PredictionRecord:
             for i in range(min(len(self.labels), len(self.score)))
         }
         out: dict[str, Any] = {
-            f"{base}_val": self.top_score,
+            f"{base}_val": self.sep.join(self.top_score) if len(self.top_score) == 1 else self.top_score[0],
             f"{base}_dict": dprob,
             f"{base}_all": dprob_all,
-            base: self.top_label
+            base: self.sep.join(self.top_label)
         }
 
         if self.category == "genre":
@@ -87,8 +89,8 @@ class PredictionRecord:
                     mains.append(m)
                 if s and s not in subs:
                     subs.append(s)
-            out[f"{base}_main"] = mains
-            out[f"{base}_sub"] = subs
+            out[f"{base}_main"] = self.sep.join(mains)
+            out[f"{base}_sub"] = self.sep.join(subs)
             out[base] = mains + subs
         out.update(stringify(out))
         return out
