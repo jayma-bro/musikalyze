@@ -74,7 +74,7 @@ class PredictionRecord:
             for i in range(min(len(self.labels), len(self.score)))
         }
         out: dict[str, Any] = {
-            f"{base}_val": self.sep.join(self.top_score) if len(self.top_score) == 1 else self.top_score[0],
+            f"{base}_val": self.sep.join(str(self.top_score)) if len(self.top_score) == 1 else self.top_score[0],
             f"{base}_dict": dprob,
             f"{base}_all": dprob_all,
             base: self.sep.join(self.top_label)
