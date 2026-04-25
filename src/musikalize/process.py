@@ -58,10 +58,12 @@ class MusicProcess:
         label_extractors: Sequence[LabelExtractor] = (),
         tagging_config: TaggingConfig | None = None,
         export_config: ExportConfig | None = None,
+        separator: str = ";",
     ) -> None:
         self.audio_path = Path(audio_file)
         self.tagging_config = tagging_config or TaggingConfig()
         self.export_config = export_config
+        self.separator = separator
 
         self._embedders = {e.name: e for e in embedders}
         self._label_extractors = list(label_extractors)
@@ -110,6 +112,7 @@ class MusicProcess:
                 self._embedders,
                 self._label_extractors,
                 audio_path=self.audio_path,
+                sep=self.separator
             )
         return self._lazy_engine
 

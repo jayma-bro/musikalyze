@@ -143,7 +143,9 @@ class LazyMetaEngine:
         extractors: Sequence[LabelExtractor],
         *,
         audio_path: Path,
+        sep: str,
     ) -> None:
+        self.sep = sep
         self._audio = audio
         self._embedders = dict(embedders)
         self._extractors = list(extractors)
@@ -331,7 +333,7 @@ class LazyMetaEngine:
                     except TypeError as e:
                         print(f"Error for {base_suffix} : {e}")
                         continue
-        out.update(stringify(out))
+        out.update(self._stringify(out))
         return out
 
     def get_one_meta(self, key: str) -> Any:
@@ -339,3 +341,14 @@ class LazyMetaEngine:
         if key not in m:
             m = self.build_flat_meta(None)
         return m.get(key)
+
+    def _stringify(self, dictionary: Dict[str, Any]) -> Dict[str, str]:
+        out = {}
+        for item in dictionary:
+            if type(dictionary[item]) is str:
+                out[f"{item}_str"] = dictionary[item]
+            elif type(dictionary[item]) is list:
+                out[f"{item}_str"] = self.sep.join([str(var) for var in dictionary[item]])
+            else:
+                json.dumps(dictionary[item], ensure_ascii=False)
+        return(out)
