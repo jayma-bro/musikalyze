@@ -65,6 +65,8 @@ class PredictionRecord:
     @property
     def flat_meta_from_record(self) -> dict[str, Any]:
         base = meta_key_base(self)
+        if self.category == "classical":
+            return {base: self.top_label}
         dprob = {
             self.top_label[i]: float(self.top_score[i])
             for i in range(min(len(self.top_label), len(self.top_score)))

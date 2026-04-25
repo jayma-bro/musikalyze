@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+import numpy as np
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, Mapping, Sequence
@@ -21,7 +22,7 @@ from musikalize.exceptions import PredictionError, UnknownEmbedderError
 log = logging.getLogger(__name__)
 
 _CLASSICAL_KEYS = frozenset(
-    {"meta_bpm", "meta_key", "meta_scale", "meta_danceability"}
+    {"meta_bpm", "meta_key", "meta_scale", "meta_danceability", "meta_rgain_gain", "meta_rgain_peak", "meta_rgain_peak_dbfs"}
 )
         
 
@@ -197,48 +198,76 @@ class LazyMetaEngine:
             if self._pred[pred].category == "classical" and key.startswith(meta_key_base(self._pred[pred])):
                 return self._pred[pred].flat_meta_from_record
         
-        pred = PredictionRecord(
-            name="",
-            category="classical",
-            labels=[],
-            score=[1.0],
-            top_label=[],
-            top_score=[1.0],
-            sep=""
-        )
+        pred_list = []
         if key.startswith("meta_bpm"):
             from essentia.standard import RhythmExtractor2013, MonoLoader
 
             new_audio = MonoLoader(filename=str(self._audio_path.resolve()))()
             bpm, beats, beats_confidence, _, beats_intervals = RhythmExtractor2013(method="multifeature")(new_audio)
-            pred.name = "bpm"
-            pred.labels.append(str(int(round(float(bpm)))))
-            pred.top_label = pred.labels
-        elif key == "meta_key":
+            pred_list.append({
+                "name": "bpm",
+                "labels": int(round(float(bpm))),
+            })
+        elif key == "meta_key" or key == "meta_scale":
             from essentia.standard import KeyExtractor
 
-            k, _scale, _ = KeyExtractor()(self._audio)
-            pred.name = "key"
-            pred.labels.append(str(k))
-            pred.top_label = pred.labels
-        elif key == "meta_scale":
-            from essentia.standard import KeyExtractor
-
-            _k, scale, _ = KeyExtractor()(self._audio)
-            pred.name = "scale"
-            pred.labels.append(str(scale))
-            pred.top_label = pred.labels
+            k, scale, _ = KeyExtractor()(self._audio)
+            pred_list.append({
+                "name": "key",
+                "labels": k,
+            })
+            pred_list.append({
+                "name": "scale",
+                "labels": scale,
+            })
         elif key == "meta_danceability":
             from essentia.standard import Danceability
 
             d, _ = Danceability()(self._audio)
-            pred.name = "danceability"
-            pred.labels.append(str(float(d)))
-            pred.top_label = pred.labels
+            pred_list.append({
+                "name": "danceability",
+                "labels": float(d),
+            })
+        elif key in ["meta_rgain_gain", "meta_rgain_peak", "meta_rgain_peak_dbfs"]:
+            from essentia.standard import AudioLoader, LoudnessEBUR128
+            loader = AudioLoader(filename=str(self._audio_path.resolve()))
+            audio_stereo, sample_rate, channels, _, _, _ = loader()
+            momentary, short_term, integrated, loudness_range = LoudnessEBUR128(
+                sampleRate=sample_rate,
+                hopSize=0.1,
+                startAtZero=False
+            )(audio_stereo)
+            REPLAYGAIN_TARGET = -18.0
+            track_gain = float(REPLAYGAIN_TARGET - integrated)
+            peak_value = float(np.max(np.abs(audio_stereo)))
+            peak_dbfs = float(20 * np.log10(peak_value) if peak_value > 0 else -np.inf)
+            pred_list.append({
+                "name": "rgain_gain",
+                "labels": track_gain,
+            })
+            pred_list.append({
+                "name": "rgain_peak",
+                "labels": peak_value,
+            })
+            pred_list.append({
+                "name": "rgain_peak_dbfs",
+                "labels": peak_dbfs,
+            })
         else:
             return None
-        self._pred[pred.name] = pred
-        return pred.flat_meta_from_record
+        out = {}
+        for item in pred_list:
+            self._pred[item["name"]] = PredictionRecord(
+                name=item["name"],
+                category="classical",
+                labels=str(item["labels"]),
+                score=[1.0],
+                top_label=str(item["labels"]),
+                top_score=[1.0],
+                sep=""
+            )
+            out.update(self._pred[item["name"]].flat_meta_from_record)
+        return out
 
     def _needs_extractor(self, ex: LabelExtractor, key: str | None) -> bool:
         if key is None:
