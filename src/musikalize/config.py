@@ -57,7 +57,7 @@ class PredictionRecord:
     name: str
     category: Literal["genre", "mood", "classical", "other"]
     labels: list[str]
-    score: list[float]
+    scores: list[float]
     top_label: list[str]
     top_score: list[float]
     sep: str
@@ -67,18 +67,14 @@ class PredictionRecord:
         base = meta_key_base(self)
         if self.category == "classical":
             return {base: self.top_label}
-        dprob = {
-            self.top_label[i]: float(self.top_score[i])
-            for i in range(min(len(self.top_label), len(self.top_score)))
-        }
-        dprob_all = {
-            self.labels[i]: float(self.score[i])
-            for i in range(min(len(self.labels), len(self.score)))
-        }
+
         out: dict[str, Any] = {
             f"{base}_val": self.top_score,
-            f"{base}_dict": dprob,
-            f"{base}_all": dprob_all,
+            f"{base}_val_pct": self._pct(self.top_score),
+            f"{base}_dict": self._dict(self.top_label, self.top_score),
+            f"{base}_dict_pct": self._dict(self.top_label, self._pct(self.top_score)),
+            f"{base}_all": self._dict(self.labels, self.scores),
+            f"{base}_all_pct": self._dict(self.labels, self._pct(self.scores)),
             base: self.top_label
         }
 
@@ -96,6 +92,15 @@ class PredictionRecord:
             out[base] = mains + subs
         out.update(self._stringify(out))
         return out
+
+    def _dict(self, labels: list[str], scores: Union[list[float], list[int]]) -> dict[str, Any]:
+        return {
+            labels[i]: scores[i]
+            for i in range(min(len(labels), len(scores)))
+        }
+
+    def _pct(self, value: list[float])-> list[int]:
+        return [int(round(n*100)) for n in value]
 
     def _stringify(self, dictionary: Dict[str, Any]) -> Dict[str, str]:
         out = {}

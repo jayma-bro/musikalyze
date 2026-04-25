@@ -86,15 +86,15 @@ def run_label_head(embeddings: Any, ex: LabelExtractor) -> PredictionRecord:
 
     pooled = mean_pool_time(np.asarray(raw))
     labels = []
-    score = []
+    scores = []
     top_label = []
     top_score = []
     if ex.task == "regression" and pooled.size <= 2:
-        score = [float(pooled[0])]
-        index = int(min(int(score[0] * len(raw_labels)), len(raw_labels) - 1))
+        scores = [float(pooled[0])]
+        index = int(min(int(scores[0] * len(raw_labels)), len(raw_labels) - 1))
         labels=[raw_labels[index]]
         top_label=labels
-        top_score=[1.0 - score[0]]
+        top_score=[1.0 - scores[0]]
 
     order = np.argsort(-pooled)
     if raw_labels and len(raw_labels) != pooled.size:
@@ -111,7 +111,7 @@ def run_label_head(embeddings: Any, ex: LabelExtractor) -> PredictionRecord:
     if ex.task == "classification":
         top_i = int(np.argmax(pooled))
         labels=[raw_labels[i] for i in order]
-        score=pooled[order].tolist()
+        scores=pooled[order].tolist()
         top_label=[raw_labels[top_i]]
         top_score=[float(pooled[top_i])]
     elif ex.task == "multilabel":
@@ -119,7 +119,7 @@ def run_label_head(embeddings: Any, ex: LabelExtractor) -> PredictionRecord:
         idxs = max(ex.count, thold_count) if ex.count_thold_policy == "union" else min(ex.count, thold_count)
         top_order = order[:idxs]
         labels=[raw_labels[i] for i in order]
-        score=pooled[order].tolist()
+        scores=pooled[order].tolist()
         top_label=[raw_labels[i] for i in top_order]
         top_score=pooled[top_order].tolist()
 
@@ -127,7 +127,7 @@ def run_label_head(embeddings: Any, ex: LabelExtractor) -> PredictionRecord:
             name=ex.name,
             category=ex.category,
             labels=labels,
-            score=[round(n, 2) for n in score],
+            scores=[round(n, 2) for n in scores],
             top_label=top_label,
             top_score=[round(n, 2) for n in top_score],
             sep=ex.separator,
@@ -261,7 +261,7 @@ class LazyMetaEngine:
                 name=item["name"],
                 category="classical",
                 labels=str(item["labels"]),
-                score=[1.0],
+                scores=[1.0],
                 top_label=str(item["labels"]),
                 top_score=[1.0],
                 sep=""
