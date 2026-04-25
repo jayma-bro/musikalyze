@@ -10,6 +10,7 @@ import json
 from musikalize.analysis_ops import (
     main_sub_from_label,
     meta_key_base,
+    pct,
 )
 
 
@@ -70,11 +71,11 @@ class PredictionRecord:
 
         out: dict[str, Any] = {
             f"{base}_val": self.top_score,
-            f"{base}_val_pct": self._pct(self.top_score),
+            f"{base}_val_pct": pct(self.top_score),
             f"{base}_dict": self._dict(self.top_label, self.top_score),
-            f"{base}_dict_pct": self._dict(self.top_label, self._pct(self.top_score)),
+            f"{base}_dict_pct": self._dict(self.top_label, pct(self.top_score)),
             f"{base}_all": self._dict(self.labels, self.scores),
-            f"{base}_all_pct": self._dict(self.labels, self._pct(self.scores)),
+            f"{base}_all_pct": self._dict(self.labels, pct(self.scores)),
             base: self.top_label
         }
 
@@ -98,9 +99,6 @@ class PredictionRecord:
             labels[i]: scores[i]
             for i in range(min(len(labels), len(scores)))
         }
-
-    def _pct(self, value: list[float])-> list[int]:
-        return [int(round(n*100)) for n in value]
 
     def _stringify(self, dictionary: Dict[str, Any]) -> Dict[str, str]:
         out = {}

@@ -15,6 +15,7 @@ from musikalize.analysis_ops import (
     merge_values,
     meta_key_base,
     stringify,
+    pct,
 )
 from musikalize.config import EmbeddingModel, LabelExtractor, PredictionRecord
 from musikalize.exceptions import PredictionError, UnknownEmbedderError
@@ -262,9 +263,9 @@ class LazyMetaEngine:
             self._pred[item["name"]] = PredictionRecord(
                 name=item["name"],
                 category="classical",
-                labels=str(item["labels"]),
+                labels=[str(item["labels"])],
                 scores=[1.0],
-                top_label=str(item["labels"]),
+                top_label=[str(item["labels"])],
                 top_score=[1.0],
                 sep=""
             )
@@ -310,6 +311,28 @@ class LazyMetaEngine:
             if moods_ex:
                 moods_dict = self._meta_extractor(moods_ex, moods_base)
                 out.update(moods_dict)
+
+        meta_base = "metas"
+        if key is None or key.startswith(meta_base):
+            full_dict = {}
+            _ = self._meta_extractor(self._extractors, meta_base)
+            for ck in _CLASSICAL_KEYS:
+                _ = self._ensure_classical_key(ck)
+            for pred_name in self._pred:
+                pred = self._pred[pred_name]
+                if pred.category == "classical":
+                    full_dict[pred.name] = pred.labels[0]
+                elif len(pred.labels) == len(pred.scores) == 1:
+                    full_dict[pred.labels[0]] = pct(pred.scores[0])
+                elif len(pred.top_label) == len(pred.top_score) == 1:
+                    full_dict[pred.top_label[0]] = pct(pred.top_score[0])
+                else:
+                    full_dict[pred.name] = {
+                        pred.top_label[i]: pred.top_score[i]
+                        for i in range(min(len(pred.top_label), len(pred.top_score)))
+                    }
+            
+            out.update({"metas": full_dict})
 
         return out
     

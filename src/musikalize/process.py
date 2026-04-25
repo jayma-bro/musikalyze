@@ -151,14 +151,10 @@ class MusicProcess:
             if k.startswith("tag_"):
                 out.append(self._tags_prefixed.get(k))
                 continue
-            if k.startswith("meta_"):
+            if k.startswith("meta"):
                 nk = k
             else:
                 nk = f"meta_{k}"
-            if nk.startswith("meta_replaygain"):
-                fm = file_meta_from_tags(self._tags_raw, {nk})
-                out.append(fm.get(nk))
-                continue
             if self._audio_mono is None:
                 self.load_audio()
             if not self._embeddings_ready:
@@ -167,7 +163,7 @@ class MusicProcess:
         return out[0] if single else out
 
     def __getattr__(self, name: str) -> Any:
-        if name.startswith("meta_"):
+        if name.startswith("meta"):
             return self.label(name)
         raise AttributeError(f"{type(self).__name__!r} object has no attribute {name!r}")
 

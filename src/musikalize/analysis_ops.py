@@ -93,3 +93,7 @@ def stringify(dictionary: Dict[str, Any]) -> Dict[str, str]:
     for item in dictionary:
         out[f"{item}_str"] = dictionary[item] if type(dictionary[item]) is str else json.dumps(dictionary[item], ensure_ascii=False)
     return(out)
+
+
+def pct(value: Union[float, list[float]])-> Union[int, list[int]]:
+    return int(round(value*100)) if type(value) == float else [int(round(n*100)) for n in value]
