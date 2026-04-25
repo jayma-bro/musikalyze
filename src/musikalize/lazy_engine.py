@@ -94,7 +94,7 @@ def run_label_head(embeddings: Any, ex: LabelExtractor) -> PredictionRecord:
         index = int(min(int(score[0] * len(raw_labels)), len(raw_labels) - 1))
         labels=[raw_labels[index]]
         top_label=labels
-        top_score=[1.0 + score[0]]
+        top_score=[1.0 - score[0]]
 
     order = np.argsort(-pooled)
     if raw_labels and len(raw_labels) != pooled.size:
