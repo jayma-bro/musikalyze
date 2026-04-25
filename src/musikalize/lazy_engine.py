@@ -91,10 +91,10 @@ def run_label_head(embeddings: Any, ex: LabelExtractor) -> PredictionRecord:
     top_score = []
     if ex.task == "regression" and pooled.size <= 2:
         scores = [float(pooled[0])]
-        index = int(min(int(scores[0] * len(raw_labels)), len(raw_labels) - 1))
+        index = int(min(int((1.0 - scores[0]) * len(raw_labels)), len(raw_labels) - 1))
         labels=[raw_labels[index]]
         top_label=labels
-        top_score=[1.0 - scores[0]]
+        top_score=[scores[0]]
 
     order = np.argsort(-pooled)
     if raw_labels and len(raw_labels) != pooled.size:
