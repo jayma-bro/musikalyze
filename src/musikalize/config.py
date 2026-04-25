@@ -5,11 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, Mapping, Sequence, Union
+import json
 
 from musikalize.analysis_ops import (
     main_sub_from_label,
     meta_key_base,
-    stringify,
 )
 
 
@@ -74,10 +74,10 @@ class PredictionRecord:
             for i in range(min(len(self.labels), len(self.score)))
         }
         out: dict[str, Any] = {
-            f"{base}_val": self.sep.join(str(self.top_score)) if len(self.top_score) == 1 else self.top_score[0],
+            f"{base}_val": self.top_score,
             f"{base}_dict": dprob,
             f"{base}_all": dprob_all,
-            base: self.sep.join(self.top_label)
+            base: self.top_label
         }
 
         if self.category == "genre":
@@ -92,8 +92,19 @@ class PredictionRecord:
             out[f"{base}_main"] = self.sep.join(mains)
             out[f"{base}_sub"] = self.sep.join(subs)
             out[base] = mains + subs
-        out.update(stringify(out))
+        out.update(self._stringify(out))
         return out
+
+    def _stringify(self, dictionary: Dict[str, Any]) -> Dict[str, str]:
+        out = {}
+        for item in dictionary:
+            if type(dictionary[item]) is str:
+                out[f"{item}_str"] = dictionary[item]
+            elif type(dictionary[item]) is list:
+                out[f"{item}_str"] = self.sep.join([str(var) for var in dictionary[item]])
+            else:
+                json.dumps(dictionary[item], ensure_ascii=False)
+        return(out)
 
 
 @dataclass(slots=True)
