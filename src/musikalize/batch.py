@@ -25,6 +25,22 @@ _DEFAULT_EXTENSIONS = frozenset(
     }
 )
 
+def sample_audio_files(
+    root: Path | str,
+    sample: int | float = 0,
+    extensions: frozenset[str] | set[str] | None = None,
+    recursive: bool = True,
+    sort_paths: bool = True,
+) -> list[Path]:
+    """List a sample of audio files under ``root`` with sample as a ratio if 0<sample<1 or a sample."""
+    import random as rnd
+    full_list = list_audio_files(root=root,extensions=extensions,recursive=recursive,sort_paths=sort_paths)
+    if sample == 0:
+        return full_list
+    elif sample < 1:
+        return rnd.sample(full_list, round(sample * len(full_list)))
+    else:
+        return rnd.sample(full_list, round(sample))
 
 def list_audio_files(
     root: Path | str,

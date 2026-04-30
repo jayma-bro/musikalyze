@@ -13,6 +13,11 @@ from musikalize.exceptions import (
     UnknownEmbedderError,
     UnknownMetaKeyError,
 )
+from musikalize.batch import (
+    list_audio_files,
+    sample_audio_files,
+    process_files_parallel,
+)
 
 __all__ = [
     "AnalysisResult",
@@ -26,6 +31,7 @@ __all__ = [
     "UnknownMetaKeyError",
     "MusicProcess",
     "list_audio_files",
+    "sample_audio_files",
     "process_files_parallel",
 ]
 
@@ -37,14 +43,6 @@ def __getattr__(name: str):
         from musikalize.process import MusicProcess
 
         return MusicProcess
-    if name == "list_audio_files":
-        from musikalize.batch import list_audio_files
-
-        return list_audio_files
-    if name == "process_files_parallel":
-        from musikalize.batch import process_files_parallel
-
-        return process_files_parallel
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
