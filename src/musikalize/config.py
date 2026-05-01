@@ -37,7 +37,7 @@ class LabelExtractor:
     graph_path: Path
     labels_path: Path | None = None
     label_names: Sequence[str] | None = None
-    category: Literal["genre", "mood", "other"] = "other"
+    category: Literal["genre", "mood", "classical", "other"] = "other"
 
     input_tensor: str = "model/Placeholder"
     output_tensor: str = "model/Sigmoid"

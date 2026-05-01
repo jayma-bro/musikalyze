@@ -92,6 +92,12 @@ class LazyMetaEngine:
                     return
             raise ValueError(f"embedding model named {embedder_name} is not found")
 
+    def compute_all_extractor(self) -> None:
+        _ = self._ensure_classical_key()
+        for ex in self.extractors.items():
+            _ = self.ensure_prediction(ex)
+        return
+
     def embedding(self, embedder_name: str) -> Any:
         if embedder_name not in self._emb:
             self.compute_embedding(embedder_name)
@@ -190,13 +196,13 @@ class LazyMetaEngine:
                 sep=ex.separator,
             )
 
-    def _ensure_classical_key(self, key: str) -> Any:
+    def _ensure_classical_key(self, key: str | None) -> Any:
         for pred in self._pred:
             if self._pred[pred].category == "classical" and key.startswith(meta_key_base(self._pred[pred])):
                 return self._pred[pred].flat_meta_from_record
         
         pred_list = []
-        if key.startswith("meta_bpm"):
+        if key is None or key.startswith("meta_bpm"):
             from essentia.standard import RhythmExtractor2013, MonoLoader
 
             new_audio = MonoLoader(filename=str(self._audio_path.resolve()))()
@@ -205,7 +211,7 @@ class LazyMetaEngine:
                 "name": "bpm",
                 "labels": int(round(float(bpm))),
             })
-        elif key == "meta_key" or key == "meta_scale":
+        if key is None or key == "meta_key" or key == "meta_scale":
             from essentia.standard import KeyExtractor
 
             k, scale, _ = KeyExtractor()(self._audio)
@@ -217,7 +223,7 @@ class LazyMetaEngine:
                 "name": "scale",
                 "labels": scale,
             })
-        elif key == "meta_danceability":
+        if key is None or key == "meta_danceability":
             from essentia.standard import Danceability
 
             d, _ = Danceability()(self._audio)
@@ -225,7 +231,7 @@ class LazyMetaEngine:
                 "name": "danceability",
                 "labels": float(d),
             })
-        elif key in ["meta_rgain_gain", "meta_rgain_peak", "meta_rgain_peak_dbfs"]:
+        if key is None or key in ["meta_rgain_gain", "meta_rgain_peak", "meta_rgain_peak_dbfs"]:
             from essentia.standard import AudioLoader, LoudnessEBUR128
             loader = AudioLoader(filename=str(self._audio_path.resolve()))
             audio_stereo, sample_rate, channels, _, _, _ = loader()
@@ -250,8 +256,6 @@ class LazyMetaEngine:
                 "name": "rgain_peak_dbfs",
                 "labels": peak_dbfs,
             })
-        else:
-            return None
         out = {}
         for item in pred_list:
             self._pred[item["name"]] = PredictionRecord(
@@ -277,21 +281,22 @@ class LazyMetaEngine:
     def build_flat_meta(self, key: str | None = None) -> dict[str, Any]:
         out: dict[str, Any] = {}
         if key is None:
-            for ck in _CLASSICAL_KEYS:
-                val = self._ensure_classical_key(ck)
-                if val is not None:
-                    out[ck] = val
+            self.compute_all_extractor()
+            for pred in self._pred:
+                out.update(rec.flat_meta_from_record)
         else:
+            # classical keys
             for ck in _CLASSICAL_KEYS:
                 if key.startswith(ck):
-                    out.update(self._ensure_classical_key(ck))
-        
+                    out.update(self._pred[ck].flat_meta_from_record)
+            
+            # indivudual prediction
+            for ex in self._extractors.values():
+                if self._needs_extractor(ex, key):
+                    rec = self.ensure_prediction(ex.name)
+                    out.update(rec.flat_meta_from_record)
 
-        for ex in self._extractors.values():
-            if self._needs_extractor(ex, key):
-                rec = self.ensure_prediction(ex.name)
-                out.update(rec.flat_meta_from_record)
-        
+        # grouped prediction
         genres_base = "meta_genres"
         if key is None or key.startswith(genres_base):
             genres_ex = [e for e in self._extractors.values() if e.category == "genre"]
@@ -309,9 +314,7 @@ class LazyMetaEngine:
         meta_base = "metas"
         if key is None or key.startswith(meta_base):
             full_dict = {}
-            _ = self._meta_extractor(list(self._extractors.values()), meta_base)
-            for ck in _CLASSICAL_KEYS:
-                _ = self._ensure_classical_key(ck)
+            self.compute_all_extractor()
             for pred_name in self._pred:
                 pred = self._pred[pred_name]
                 if pred.category == "classical":
