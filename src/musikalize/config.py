@@ -16,15 +16,12 @@ from musikalize.analysis_ops import (
 
 @dataclass(frozen=True, slots=True)
 class EmbeddingModel:
-    """Embedding model (EffNet Discogs or MAEST)."""
+    """Embedding model (EffNet or MAEST)."""
 
-    name: str
     embedding_model: Path
-    embedding_output: str = "PartitionedCall:1"
-    backend: Literal["effnet_discogs", "maest"] = "effnet_discogs"
-    input_tensor: str | None = None
-    """MAEST only: TensorFlow input node name (default inside Essentia: mel patch input)."""
+    name: Literal["effnet", "maest"] = "effnet"
 
+    input_tensor: str | None = None
     patch_size: int | None = None
     patch_hop_size: int | None = None
     batch_size: int | None = None
@@ -44,7 +41,6 @@ class LabelExtractor:
 
     input_tensor: str = "model/Placeholder"
     output_tensor: str = "model/Sigmoid"
-    kind: Literal["TfPred", "TfPred2D"] = "TfPred2D"
     task: Literal["classification", "regression", "multilabel"] = "classification"
 
     separator: str = ";"

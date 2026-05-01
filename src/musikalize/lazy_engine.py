@@ -25,115 +25,6 @@ log = logging.getLogger(__name__)
 _CLASSICAL_KEYS = frozenset(
     {"meta_bpm", "meta_key", "meta_scale", "meta_danceability", "meta_rgain_gain", "meta_rgain_peak", "meta_rgain_peak_dbfs"}
 )
-        
-
-def compute_embedding(audio: Any, emb: EmbeddingModel) -> Any:
-    path = str(Path(emb.embedding_model).resolve())
-    if emb.backend == "effnet_discogs":
-        from essentia.standard import TensorflowPredictEffnetDiscogs
-
-        return TensorflowPredictEffnetDiscogs(
-            graphFilename=path,
-            output=emb.embedding_output,
-        )(audio)
-
-    from essentia.standard import TensorflowPredictMAEST
-
-    kwargs: dict[str, Any] = {"graphFilename": path, "output": emb.embedding_output}
-    if emb.input_tensor is not None:
-        kwargs["input"] = emb.input_tensor
-    if emb.patch_size is not None:
-        kwargs["patchSize"] = emb.patch_size
-    if emb.patch_hop_size is not None:
-        kwargs["patchHopSize"] = emb.patch_hop_size
-    if emb.batch_size is not None:
-        kwargs["batchSize"] = emb.batch_size
-    return TensorflowPredictMAEST(**kwargs)(audio)
-
-
-def run_label_head(embeddings: Any, ex: LabelExtractor) -> PredictionRecord:
-    import numpy as np
-    from essentia import Pool
-    from essentia.standard import TensorflowPredict2D, TensorflowPredict
-
-    raw_labels: list[str] = []
-    if ex.label_names is not None:
-        raw_labels = [str(x) for x in ex.label_names]
-    elif ex.labels_path is not None:
-        raw_labels = load_label_list(Path(ex.labels_path))
-
-    if ex.kind == "TfPred":
-        pool = Pool()
-        pool.set(ex.input_tensor, embeddings)
-        try:
-            raw = TensorflowPredict(
-                graphFilename=str(Path(ex.graph_path).resolve()),
-                inputs=[ex.input_tensor],
-                outputs=[ex.output_tensor],
-            )(pool)[ex.output_tensor]
-        except Exception as e:
-            raise PredictionError(f'Head "{ex.name}" with {ex.kind}: {e}') from e
-    elif ex.kind == "TfPred2D":
-        try:
-            raw = TensorflowPredict2D(
-                graphFilename=str(Path(ex.graph_path).resolve()),
-                input=ex.input_tensor,
-                output=ex.output_tensor,
-            )(embeddings)
-        except Exception as e:
-            raise PredictionError(f'Head "{ex.name}" with {ex.kind}: {e}') from e
-    else:
-        raise Exception("Extractor's kind not found")
-
-    pooled = mean_pool_time(np.asarray(raw))
-    labels = []
-    scores = []
-    top_label = []
-    top_score = []
-    if ex.task == "regression" and pooled.size <= 2:
-        scores = [float(pooled[0])]
-        index = int(min(int((1.0 - scores[0]) * len(raw_labels)), len(raw_labels) - 1))
-        labels=[raw_labels[index]]
-        top_label=labels
-        top_score=[scores[0]]
-
-    order = np.argsort(-pooled)
-    if raw_labels and len(raw_labels) != pooled.size:
-        log.warning(
-            'Label count (%d) != probability count (%d) for "%s"; truncating.',
-            len(raw_labels),
-            pooled.size,
-            ex.name,
-        )
-        n = min(len(raw_labels), pooled.size)
-        raw_labels = raw_labels[:n]
-        pooled = pooled[:n]
-
-    if ex.task == "classification":
-        top_i = int(np.argmax(pooled))
-        labels=[raw_labels[i] for i in order]
-        scores=pooled[order].tolist()
-        top_label=[raw_labels[top_i]]
-        top_score=[float(pooled[top_i])]
-    elif ex.task == "multilabel":
-        thold_count = len([i for i in order if pooled[i] >= ex.thold])
-        idxs = max(ex.count, thold_count) if ex.count_thold_policy == "union" else min(ex.count, thold_count)
-        top_order = order[:idxs]
-        labels=[raw_labels[i] for i in order]
-        scores=pooled[order].tolist()
-        top_label=[raw_labels[i] for i in top_order]
-        top_score=pooled[top_order].tolist()
-
-    return PredictionRecord(
-            name=ex.name,
-            category=ex.category,
-            labels=labels,
-            scores=[round(n, 2) for n in scores],
-            top_label=top_label,
-            top_score=[round(n, 2) for n in top_score],
-            sep=ex.separator,
-        )
-
 class LazyMetaEngine:
     """Embeddings are computed once via ``compute_all_embeddings()``; heads and classical features are lazy."""
 
@@ -170,14 +61,35 @@ class LazyMetaEngine:
 
         for name, model in self._embedders.items():
             if name not in self._emb:
-                self._emb[name] = compute_embedding(self._audio, model)
+                self._emb[name] = self.compute_embedding(model)
     
     def compute_embedding(self, embedder_name: str) -> None:
         """Run a signe embedding model define by the name"""
         if embedder_name not in self._emb:
-            for name, model in self._embedders.items():
-                if embedder_name == name:
-                    self._emb[name] = compute_embedding(self._audio, model)
+            if embedder_name in self._embedders:
+                emb = self._embedders[embedder_name]
+                path = str(Path(emb.embedding_model).resolve())
+                if emb.name == "effnet":
+                    from essentia.standard import TensorflowPredictEffnetDiscogs
+
+                    self._emb[embedder_name] = TensorflowPredictEffnetDiscogs(
+                        graphFilename=path,
+                        output="PartitionedCall:1",
+                    )(self._audio)
+                    return
+                elif emb.name == "maest":
+                    from essentia.standard import TensorflowPredictMAEST
+
+                    kwargs: dict[str, Any] = {"graphFilename": path, "output": "PartitionedCall/Identity_12"}
+                    if emb.input_tensor is not None:
+                        kwargs["input"] = emb.input_tensor
+                    if emb.patch_size is not None:
+                        kwargs["patchSize"] = emb.patch_size
+                    if emb.patch_hop_size is not None:
+                        kwargs["patchHopSize"] = emb.patch_hop_size
+                    if emb.batch_size is not None:
+                        kwargs["batchSize"] = emb.batch_size
+                    self._emb[embedder_name] = TensorflowPredictMAEST(**kwargs)(self._audio)
                     return
             raise ValueError(f"embedding model named {embedder_name} is not found")
 
@@ -188,13 +100,96 @@ class LazyMetaEngine:
 
     def ensure_prediction(self, extractor_name: str) -> PredictionRecord:
         if extractor_name not in self._pred:
-            ex = self._extractors_by_name.get(extractor_name)
-            if ex is None:
-                raise UnknownEmbedderError(f'Unknown extractor "{extractor_name}".')
-            emb_mod = self._embedder_model(ex)
-            emb_tensor = self.embedding(emb_mod.name)
-            self._pred[extractor_name] = run_label_head(emb_tensor, ex)
+            self._pred[extractor_name] = self.run_label_head(extractor_name)
         return self._pred[extractor_name]
+
+    def run_label_head(self, extractor_name: str) -> PredictionRecord:
+        import numpy as np
+        from essentia import Pool
+        from essentia.standard import TensorflowPredict2D, TensorflowPredict
+
+        ex = self._extractors_by_name.get(extractor_name)
+        if ex is None:
+            raise UnknownEmbedderError(f'Unknown extractor "{extractor_name}".')
+        emb_mod = self._embedder_model(ex)
+        embeddings = self.embedding(emb_mod.name)
+        raw_labels: list[str] = []
+        if ex.label_names is not None:
+            raw_labels = [str(x) for x in ex.label_names]
+        elif ex.labels_path is not None:
+            raw_labels = load_label_list(Path(ex.labels_path))
+
+        if ex.embedder_name == "maest":
+            pool = Pool()
+            pool.set(ex.input_tensor, embeddings)
+            try:
+                raw = TensorflowPredict(
+                    graphFilename=str(Path(ex.graph_path).resolve()),
+                    inputs=[ex.input_tensor],
+                    outputs=[ex.output_tensor],
+                )(pool)[ex.output_tensor]
+            except Exception as e:
+                raise PredictionError(f'Head "{ex.name}" with {ex.embedder_name}: {e}') from e
+        elif ex.embedder_name == "effnet":
+            try:
+                raw = TensorflowPredict2D(
+                    graphFilename=str(Path(ex.graph_path).resolve()),
+                    input=ex.input_tensor,
+                    output=ex.output_tensor,
+                )(embeddings)
+            except Exception as e:
+                raise PredictionError(f'Head "{ex.name}" with {ex.embedder_name}: {e}') from e
+        else:
+            raise Exception("Extractor's embedder not found")
+
+        pooled = mean_pool_time(np.asarray(raw))
+        labels = []
+        scores = []
+        top_label = []
+        top_score = []
+        if ex.task == "regression" and pooled.size <= 2:
+            scores = [float(pooled[0])]
+            index = int(min(int((1.0 - scores[0]) * len(raw_labels)), len(raw_labels) - 1))
+            labels=[raw_labels[index]]
+            top_label=labels
+            top_score=[scores[0]]
+
+        order = np.argsort(-pooled)
+        if raw_labels and len(raw_labels) != pooled.size:
+            log.warning(
+                'Label count (%d) != probability count (%d) for "%s"; truncating.',
+                len(raw_labels),
+                pooled.size,
+                ex.name,
+            )
+            n = min(len(raw_labels), pooled.size)
+            raw_labels = raw_labels[:n]
+            pooled = pooled[:n]
+
+        if ex.task == "classification":
+            top_i = int(np.argmax(pooled))
+            labels=[raw_labels[i] for i in order]
+            scores=pooled[order].tolist()
+            top_label=[raw_labels[top_i]]
+            top_score=[float(pooled[top_i])]
+        elif ex.task == "multilabel":
+            thold_count = len([i for i in order if pooled[i] >= ex.thold])
+            idxs = max(ex.count, thold_count) if ex.count_thold_policy == "union" else min(ex.count, thold_count)
+            top_order = order[:idxs]
+            labels=[raw_labels[i] for i in order]
+            scores=pooled[order].tolist()
+            top_label=[raw_labels[i] for i in top_order]
+            top_score=pooled[top_order].tolist()
+
+        return PredictionRecord(
+                name=ex.name,
+                category=ex.category,
+                labels=labels,
+                scores=[round(n, 2) for n in scores],
+                top_label=top_label,
+                top_score=[round(n, 2) for n in top_score],
+                sep=ex.separator,
+            )
 
     def _ensure_classical_key(self, key: str) -> Any:
         for pred in self._pred:
