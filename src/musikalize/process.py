@@ -55,7 +55,7 @@ class MusicProcess:
         *,
         audio_file: Path | str,
         embedders: Sequence[EmbeddingModel] = (),
-        label_extractors: Sequence[LabelExtractor] = (),
+        extractors: Sequence[LabelExtractor] = (),
         tagging_config: TaggingConfig | None = None,
         export_config: ExportConfig | None = None,
         separator: str = ";",
@@ -66,7 +66,7 @@ class MusicProcess:
         self.separator = separator
 
         self._embedders = {e.name: e for e in embedders}
-        self._label_extractors = list(label_extractors)
+        self._extractors = {e.name: e for e in extractors}
 
         self._audio_mono: Any = None
         self._lazy_engine: LazyMetaEngine | None = None
@@ -110,7 +110,7 @@ class MusicProcess:
             self._lazy_engine = LazyMetaEngine(
                 self._audio_mono,
                 self._embedders,
-                self._label_extractors,
+                self._extractors,
                 audio_path=self.audio_path,
                 sep=self.separator
             )

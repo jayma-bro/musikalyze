@@ -32,7 +32,7 @@ class LazyMetaEngine:
         self,
         audio: Any,
         embedders: Mapping[str, EmbeddingModel],
-        extractors: Sequence[LabelExtractor],
+        extractors: Mapping[str, LabelExtractor],
         *,
         audio_path: Path,
         sep: str,
@@ -40,8 +40,7 @@ class LazyMetaEngine:
         self.sep = sep
         self._audio = audio
         self._embedders = dict(embedders)
-        self._extractors = list(extractors)
-        self._extractors_by_name = {e.name: e for e in extractors}
+        self._extractors = dict(extractors)
 
         self._emb: dict[str, Any] = {}
         self._pred: dict[str, PredictionRecord] = {}
@@ -108,7 +107,7 @@ class LazyMetaEngine:
         from essentia import Pool
         from essentia.standard import TensorflowPredict2D, TensorflowPredict
 
-        ex = self._extractors_by_name.get(extractor_name)
+        ex = self._extractors.get(extractor_name)
         if ex is None:
             raise UnknownEmbedderError(f'Unknown extractor "{extractor_name}".')
         emb_mod = self._embedder_model(ex)
@@ -288,21 +287,21 @@ class LazyMetaEngine:
                     out.update(self._ensure_classical_key(ck))
         
 
-        for ex in self._extractors:
+        for ex in self._extractors.values():
             if self._needs_extractor(ex, key):
                 rec = self.ensure_prediction(ex.name)
                 out.update(rec.flat_meta_from_record)
         
         genres_base = "meta_genres"
         if key is None or key.startswith(genres_base):
-            genres_ex = [e for e in self._extractors if e.category == "genre"]
+            genres_ex = [e for e in self._extractors.values() if e.category == "genre"]
             if genres_ex:
                 genres_dict = self._meta_extractor(genres_ex, genres_base)
                 out.update(genres_dict)
                 
         moods_base = "meta_moods"
         if key is None or key.startswith(moods_base):
-            moods_ex = [e for e in self._extractors if e.category == "mood"]
+            moods_ex = [e for e in self._extractors.values() if e.category == "mood"]
             if moods_ex:
                 moods_dict = self._meta_extractor(moods_ex, moods_base)
                 out.update(moods_dict)
@@ -310,7 +309,7 @@ class LazyMetaEngine:
         meta_base = "metas"
         if key is None or key.startswith(meta_base):
             full_dict = {}
-            _ = self._meta_extractor(self._extractors, meta_base)
+            _ = self._meta_extractor(list(self._extractors.values()), meta_base)
             for ck in _CLASSICAL_KEYS:
                 _ = self._ensure_classical_key(ck)
             for pred_name in self._pred:
