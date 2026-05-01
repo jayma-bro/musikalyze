@@ -93,9 +93,9 @@ class LazyMetaEngine:
             raise ValueError(f"embedding model named {embedder_name} is not found")
 
     def compute_all_extractor(self) -> None:
-        _ = self._ensure_classical_key()
-        for ex in self.extractors.items():
-            _ = self.ensure_prediction(ex)
+        _ = self._ensure_classical_key(None)
+        for ex_name in self._extractors.keys():
+            _ = self.ensure_prediction(ex_name)
         return
 
     def embedding(self, embedder_name: str) -> Any:
@@ -104,7 +104,7 @@ class LazyMetaEngine:
         return self._emb[embedder_name]
 
     def ensure_prediction(self, extractor_name: str) -> PredictionRecord:
-        if extractor_name not in self._pred:
+        if extractor_name not in self._pred.keys():
             self._pred[extractor_name] = self.run_label_head(extractor_name)
         return self._pred[extractor_name]
 
@@ -198,7 +198,7 @@ class LazyMetaEngine:
 
     def _ensure_classical_key(self, key: str | None) -> Any:
         for pred in self._pred:
-            if self._pred[pred].category == "classical" and key.startswith(meta_key_base(self._pred[pred])):
+            if self._pred[pred].category == "classical" and (key is None or key.startswith(meta_key_base(self._pred[pred]))):
                 return self._pred[pred].flat_meta_from_record
         
         pred_list = []
@@ -282,8 +282,8 @@ class LazyMetaEngine:
         out: dict[str, Any] = {}
         if key is None:
             self.compute_all_extractor()
-            for pred in self._pred:
-                out.update(rec.flat_meta_from_record)
+            for pred in self._pred.values():
+                out.update(pred.flat_meta_from_record)
         else:
             # classical keys
             for ck in _CLASSICAL_KEYS:
@@ -315,22 +315,44 @@ class LazyMetaEngine:
         if key is None or key.startswith(meta_base):
             full_dict = {}
             self.compute_all_extractor()
-            for pred_name in self._pred:
-                pred = self._pred[pred_name]
-                if pred.category == "classical":
-                    full_dict[pred.name] = pred.labels[0]
-                elif len(pred.labels) == len(pred.scores) == 1:
-                    full_dict[pred.labels[0]] = pct(pred.scores[0])
-                elif len(pred.top_label) == len(pred.top_score) == 1:
-                    full_dict[pred.top_label[0]] = pct(pred.top_score[0])
-                else:
-                    full_dict[pred.name] = {
-                        pred.top_label[i]: pred.top_score[i]
-                        for i in range(min(len(pred.top_label), len(pred.top_score)))
-                    }
+            attributes = [
+                meta_base,
+                f"{meta_base}_pct",
+                f"{meta_base}_all",
+                f"{meta_base}_all_pct",
+                f"{meta_base}_label",
+                f"{meta_base}_label_pct",
+                f"{meta_base}_label_all",
+                f"{meta_base}_label_all_pct",
+            ]
+            for attribute in attributes:
+                if key is None or key.startswith(attribute):
+                    full_dict[attribute] = {}
+                    for pred in self._pred.values():
+                        pred_key = None
+                        pred_val = None
+                        if pred.category == "classical":
+                            full_dict[attribute][pred.name] = pred.labels[0]
+                            continue
+                        elif len(pred.top_label) == len(pred.top_score) == 1:
+                            pred_key = pred.top_label[0] if "_label" in attribute else pred.name
+                            pred_val = pred.top_score[0]
+                        else:
+                            if "_all" in attribute:
+                                pred_key = pred.labels
+                                pred_val = pred.scores
+                            else:
+                                pred_key = pred.top_label
+                                pred_val = pred.top_score
+                        if type(pred_key) == type(pred_val) == list:
+                            full_dict[attribute][pred.name] = {
+                                pred_key[i]: pct(pred_val[i]) if "_pct" in attribute else pred_val[i]
+                                for i in range(min(len(pred_key), len(pred_val)))
+                            }
+                        else:
+                            full_dict[attribute][pred_key] = pct(pred_val) if "_pct" in attribute else pred_val
             
-            out.update({"metas": full_dict})
-
+            out.update(full_dict)
         return out
     
     def _meta_extractor(self, extractors: Sequence[LabelExtractor], meta_base: str) -> dict[str, Any]:
