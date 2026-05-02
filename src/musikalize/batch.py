@@ -75,7 +75,7 @@ def _embedding_from_dict(d: dict[str, Any]) -> EmbeddingModel:
         name=d["name"],
         embedding_model=Path(d["embedding_model"]),
         embedding_output=d.get("embedding_output", "PartitionedCall:1"),
-        backend=d.get("backend", "effnet_discogs"),
+        backend=d.get("backend", "effnet"),
         input_tensor=d.get("input_tensor"),
         patch_size=d.get("patch_size"),
         patch_hop_size=d.get("patch_hop_size"),

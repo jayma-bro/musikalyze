@@ -17,6 +17,7 @@ from musikalize.analysis_ops import (
     stringify,
     pct,
 )
+from musikalize.audio_io import load_audio
 from musikalize.config import EmbeddingModel, LabelExtractor, PredictionRecord
 from musikalize.exceptions import PredictionError, UnknownEmbedderError
 
@@ -160,7 +161,7 @@ class LazyMetaEngine:
             top_score=[scores[0]]
 
         order = np.argsort(-pooled)
-        if raw_labels and len(raw_labels) != pooled.size:
+        if (raw_labels and len(raw_labels) != pooled.size) and ex.task != "regression":
             log.warning(
                 'Label count (%d) != probability count (%d) for "%s"; truncating.',
                 len(raw_labels),
@@ -203,9 +204,8 @@ class LazyMetaEngine:
         
         pred_list = []
         if key is None or key.startswith("meta_bpm"):
-            from essentia.standard import RhythmExtractor2013, MonoLoader
-
-            new_audio = MonoLoader(filename=str(self._audio_path.resolve()))()
+            from essentia.standard import RhythmExtractor2013
+            new_audio, _ = load_audio(str(self._audio_path.resolve()))
             bpm, beats, beats_confidence, _, beats_intervals = RhythmExtractor2013(method="multifeature")(new_audio)
             pred_list.append({
                 "name": "bpm",
@@ -232,9 +232,8 @@ class LazyMetaEngine:
                 "labels": float(d),
             })
         if key is None or key in ["meta_rgain_gain", "meta_rgain_peak", "meta_rgain_peak_dbfs"]:
-            from essentia.standard import AudioLoader, LoudnessEBUR128
-            loader = AudioLoader(filename=str(self._audio_path.resolve()))
-            audio_stereo, sample_rate, channels, _, _, _ = loader()
+            from essentia.standard import LoudnessEBUR128
+            audio_stereo, sample_rate = load_audio(str(self._audio_path.resolve()), track="stereo")
             momentary, short_term, integrated, loudness_range = LoudnessEBUR128(
                 sampleRate=sample_rate,
                 hopSize=0.1,

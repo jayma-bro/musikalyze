@@ -6,7 +6,7 @@ from dataclasses import fields
 from pathlib import Path
 from typing import Any, Sequence, Union
 
-from musikalize.audio_io import load_mono_16k
+from musikalize.audio_io import load_audio
 from musikalize.config import AnalysisResult, EmbeddingModel, ExportConfig, LabelExtractor, TaggingConfig
 from musikalize.export_ffmpeg import export_multiple_formats
 from musikalize.lazy_engine import LazyMetaEngine
@@ -117,7 +117,7 @@ class MusicProcess:
         return self._lazy_engine
 
     def load_audio(self) -> Any:
-        self._audio_mono = load_mono_16k(self.audio_path)
+        self._audio_mono, _ = load_audio(self.audio_path, track="mono", sample_rate=16000, resample_quality=4)
         self._lazy_engine = None
         self._embeddings_ready = False
         self._meta_cache = None
