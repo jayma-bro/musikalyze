@@ -6,7 +6,7 @@ import subprocess
 from pathlib import Path
 from typing import Any, Mapping
 
-from musikalize.templates import build_format_mapping, resolve_template, sanitize_relative_path
+from musikalyze.templates import build_format_mapping, resolve_template, sanitize_relative_path
 
 _FORMAT_DEFAULTS: dict[str, dict[str, str]] = {
     "opus": {"acodec": "libopus", "audio_bitrate": "160k"},

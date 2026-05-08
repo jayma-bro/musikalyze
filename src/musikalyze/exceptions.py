@@ -1,19 +1,19 @@
-"""Explicit errors for musikalize."""
+"""Explicit errors for musikalyze."""
 
 from __future__ import annotations
 
 
-class MusikalizeError(Exception):
+class musikalyzeError(Exception):
     """Base error."""
 
 
-class UnknownEmbedderError(MusikalizeError):
+class UnknownEmbedderError(musikalyzeError):
     """Unknown embedding name in the registry."""
 
 
-class UnknownMetaKeyError(MusikalizeError):
+class UnknownMetaKeyError(musikalyzeError):
     """Unknown or unavailable metadata key."""
 
 
-class PredictionError(MusikalizeError):
+class PredictionError(musikalyzeError):
     """TensorFlow / Essentia inference failure."""

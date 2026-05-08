@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, Mapping, Sequence
 
-from musikalize.analysis_ops import (
+from musikalyze.analysis_ops import (
     load_label_list,
     mean_pool_time,
     merge_values,
@@ -17,9 +17,9 @@ from musikalize.analysis_ops import (
     stringify,
     pct,
 )
-from musikalize.audio_io import load_audio
-from musikalize.config import EmbeddingModel, LabelExtractor, PredictionRecord
-from musikalize.exceptions import PredictionError, UnknownEmbedderError
+from musikalyze.audio_io import load_audio
+from musikalyze.config import EmbeddingModel, LabelExtractor, PredictionRecord
+from musikalyze.exceptions import PredictionError, UnknownEmbedderError
 
 log = logging.getLogger(__name__)
 

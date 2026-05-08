@@ -1,19 +1,19 @@
-"""musikalize — Essentia-based audio analysis, tagging, and transcoding."""
+"""musikalyze — Essentia-based audio analysis, tagging, and transcoding."""
 
-from musikalize.config import (
+from musikalyze.config import (
     AnalysisResult,
     EmbeddingModel,
     ExportConfig,
     LabelExtractor,
     TaggingConfig,
 )
-from musikalize.exceptions import (
-    MusikalizeError,
+from musikalyze.exceptions import (
+    musikalyzeError,
     PredictionError,
     UnknownEmbedderError,
     UnknownMetaKeyError,
 )
-from musikalize.batch import (
+from musikalyze.batch import (
     list_audio_files,
     sample_audio_files,
     process_files_parallel,
@@ -25,7 +25,7 @@ __all__ = [
     "ExportConfig",
     "LabelExtractor",
     "TaggingConfig",
-    "MusikalizeError",
+    "musikalyzeError",
     "PredictionError",
     "UnknownEmbedderError",
     "UnknownMetaKeyError",
@@ -40,7 +40,7 @@ __version__ = "0.3.0"
 
 def __getattr__(name: str):
     if name == "MusicProcess":
-        from musikalize.process import MusicProcess
+        from musikalyze.process import MusicProcess
 
         return MusicProcess
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

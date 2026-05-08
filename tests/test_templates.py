@@ -2,7 +2,7 @@
 
 import unittest
 
-from musikalize.templates import (
+from musikalyze.templates import (
     build_format_mapping,
     extract_placeholder_keys,
     resolve_template,

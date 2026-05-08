@@ -3,22 +3,22 @@ requires = ["setuptools>=61", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "musikalize"
+name = "musikalyze"
 version = "0.4.0"
 description = "Analyse audio (Essentia/TF), tags et export multi-formats"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-authors = [{ name = "musikalize contributors" }]
+license-files = ["LICENSE"]
+keywords = ["music", "audio", "analysis", "essentia"]
+authors = [{ name = "jayma brochier" }]
 dependencies = [
     "mutagen>=1.47",
     "numpy>=1.24",
+    "essentia-tensorflow>=2.1",
 ]
 
 [project.optional-dependencies]
-tensorflow = [
-    "essentia-tensorflow",
-]
 dev = [
     "pytest>=8.0",
     "ruff>=0.4",
@@ -28,7 +28,7 @@ dev = [
 where = ["src"]
 
 [tool.setuptools.package-data]
-musikalize = ["py.typed"]
+musikalyze = ["py.typed"]
 
 [tool.ruff]
 line-length = 100
@@ -36,3 +36,8 @@ target-version = "py310"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[project.urls]
+Homepage = "https://github.com/jayma-bro/musikalyze"
+Repository = "https://github.com/jayma-bro/musikalyze"
+Issues = "https://github.com/jayma-bro/musikalyze/issues"

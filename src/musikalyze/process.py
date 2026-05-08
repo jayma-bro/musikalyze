@@ -6,18 +6,18 @@ from dataclasses import fields
 from pathlib import Path
 from typing import Any, Sequence, Union
 
-from musikalize.audio_io import load_audio
-from musikalize.config import AnalysisResult, EmbeddingModel, ExportConfig, LabelExtractor, TaggingConfig
-from musikalize.export_ffmpeg import export_multiple_formats
-from musikalize.lazy_engine import LazyMetaEngine
-from musikalize.tagging import (
+from musikalyze.audio_io import load_audio
+from musikalyze.config import AnalysisResult, EmbeddingModel, ExportConfig, LabelExtractor, TaggingConfig
+from musikalyze.export_ffmpeg import export_multiple_formats
+from musikalyze.lazy_engine import LazyMetaEngine
+from musikalyze.tagging import (
     apply_tagging_config,
     file_meta_from_tags,
     merge_logical_tags_for_export,
     read_tags_raw,
     tags_to_tag_prefix,
 )
-from musikalize.templates import build_format_mapping, extract_placeholder_keys, resolve_template
+from musikalyze.templates import build_format_mapping, extract_placeholder_keys, resolve_template
 
 
 def _tagging_template_strings(cfg: TaggingConfig) -> list[str]:
@@ -227,7 +227,7 @@ class MusicProcess:
             self.analyze_file()
         if not self._tags_resolved:
             self.tag_file()
-        from musikalize.export_ffmpeg import build_output_path
+        from musikalyze.export_ffmpeg import build_output_path
 
         keys = _collect_needed_meta_keys(self.tagging_config, self.export_config)
         meta = self._engine().build_flat_meta(keys)

@@ -3,7 +3,7 @@
 import unittest
 from types import SimpleNamespace
 
-from musikalize.analysis_ops import split_genre_label
+from musikalyze.analysis_ops import split_genre_label
 
 
 class TestGenre(unittest.TestCase):

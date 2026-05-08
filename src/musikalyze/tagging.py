@@ -7,8 +7,8 @@ from typing import Any, Mapping
 
 from mutagen import File as MutagenFile
 
-from musikalize.config import AnalysisResult, TaggingConfig
-from musikalize.templates import build_format_mapping, resolve_template
+from musikalyze.config import AnalysisResult, TaggingConfig
+from musikalyze.templates import build_format_mapping, resolve_template
 
 _LOGICAL_KEYS = (
     "artist",

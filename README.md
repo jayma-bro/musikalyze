@@ -1,4 +1,4 @@
-# musikalize
+# musikalyze
 
 Python library to **analyze** audio with **Essentia + TensorFlow** (EffNet Discogs, MAEST, classifier heads), **read/write tags** (Mutagen), and **transcode** with **ffmpeg** using path templates.
 
@@ -22,7 +22,7 @@ pip install -e ".[tensorflow]"
 
 ## Models
 
-Download `.pb` / `.json` from [Essentia models](https://essentia.upf.edu/documentation/models.html) (e.g. [discogs-effnet](https://essentia.upf.edu/models/feature-extractors/discogs-effnet/), MAEST, genre/mood heads). Set `input_tensor` / `output_tensor` on each `LabelExtractor` to match the graph. For **MAEST embeddings**, use `EmbeddingModel(backend="maest", …)`; musikalize calls `**TensorflowPredictMAEST`** (not the generic `TensorflowPredict` pool API).
+Download `.pb` / `.json` from [Essentia models](https://essentia.upf.edu/documentation/models.html) (e.g. [discogs-effnet](https://essentia.upf.edu/models/feature-extractors/discogs-effnet/), MAEST, genre/mood heads). Set `input_tensor` / `output_tensor` on each `LabelExtractor` to match the graph. For **MAEST embeddings**, use `EmbeddingModel(backend="maest", …)`; musikalyze calls `**TensorflowPredictMAEST`** (not the generic `TensorflowPredict` pool API).
 
 ## Usage
 
@@ -34,7 +34,7 @@ Download `.pb` / `.json` from [Essentia models](https://essentia.upf.edu/documen
 ```python
 from pathlib import Path
 
-from musikalize import (
+from musikalyze import (
     EmbeddingModel,
     ExportConfig,
     LabelExtractor,
@@ -104,7 +104,7 @@ Unless you map a field in `TaggingConfig`, its value is **not** recomputed: **ex
 ```python
 from pathlib import Path
 
-from musikalize import ExportConfig, MusicProcess, TaggingConfig, list_audio_files, process_files_parallel
+from musikalyze import ExportConfig, MusicProcess, TaggingConfig, list_audio_files, process_files_parallel
 
 # build embedders / extractors as above, then:
 paths = list_audio_files(Path("./library"))

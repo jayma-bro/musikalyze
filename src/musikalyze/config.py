@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Literal, Mapping, Sequence, Union
 import json
 
-from musikalize.analysis_ops import (
+from musikalyze.analysis_ops import (
     main_sub_from_label,
     meta_key_base,
     pct,

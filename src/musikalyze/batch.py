@@ -7,8 +7,8 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Sequence
 
-from musikalize.config import EmbeddingModel, ExportConfig, LabelExtractor, TaggingConfig
-from musikalize.process import MusicProcess
+from musikalyze.config import EmbeddingModel, ExportConfig, LabelExtractor, TaggingConfig
+from musikalyze.process import MusicProcess
 
 _DEFAULT_EXTENSIONS = frozenset(
     {
