@@ -4,17 +4,17 @@ from __future__ import annotations
 
 import json
 import logging
-import numpy as np
-from dataclasses import dataclass, field
+from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, Literal, Mapping, Sequence
+from typing import Any
+
+import numpy as np
 
 from musikalyze.analysis_ops import (
     load_label_list,
     mean_pool_time,
     merge_values,
     meta_key_base,
-    stringify,
     pct,
 )
 from musikalyze.audio_io import load_audio
@@ -38,8 +38,8 @@ class LazyMetaEngine:
         audio_path: Path,
         sep: str,
     ) -> None:
-        self.sep = sep
-        self._audio = audio
+        self.sep: str = sep
+        self._audio: Any = audio
         self._embedders = dict(embedders)
         self._extractors = dict(extractors)
 
@@ -62,7 +62,7 @@ class LazyMetaEngine:
         for name, model in self._embedders.items():
             if name not in self._emb:
                 self._emb[name] = self.compute_embedding(model)
-    
+
     def compute_embedding(self, embedder_name: str) -> None:
         """Run a signe embedding model define by the name"""
         if embedder_name not in self._emb:
@@ -97,7 +97,6 @@ class LazyMetaEngine:
         _ = self._ensure_classical_key(None)
         for ex_name in self._extractors.keys():
             _ = self.ensure_prediction(ex_name)
-        return
 
     def embedding(self, embedder_name: str) -> Any:
         if embedder_name not in self._emb:
@@ -112,7 +111,7 @@ class LazyMetaEngine:
     def run_label_head(self, extractor_name: str) -> PredictionRecord:
         import numpy as np
         from essentia import Pool
-        from essentia.standard import TensorflowPredict2D, TensorflowPredict
+        from essentia.standard import TensorflowPredict, TensorflowPredict2D
 
         ex = self._extractors.get(extractor_name)
         if ex is None:
@@ -123,7 +122,12 @@ class LazyMetaEngine:
         if ex.label_names is not None:
             raw_labels = [str(x) for x in ex.label_names]
         elif ex.labels_path is not None:
-            raw_labels = load_label_list(Path(ex.labels_path))
+            try:
+                raw_labels = load_label_list(Path(ex.labels_path), extractor_name=ex.name)
+            except ValueError as e:
+                raise PredictionError(
+                    f'Extractor "{ex.name}" (embedder={ex.embedder_name}): {e}'
+                ) from e
 
         if ex.embedder_name == "maest":
             pool = Pool()
@@ -201,7 +205,7 @@ class LazyMetaEngine:
         for pred in self._pred:
             if self._pred[pred].category == "classical" and (key is None or key.startswith(meta_key_base(self._pred[pred]))):
                 return self._pred[pred].flat_meta_from_record
-        
+
         pred_list = []
         if key is None or key.startswith("meta_bpm"):
             from essentia.standard import RhythmExtractor2013
@@ -288,7 +292,7 @@ class LazyMetaEngine:
             for ck in _CLASSICAL_KEYS:
                 if key.startswith(ck):
                     out.update(self._pred[ck].flat_meta_from_record)
-            
+
             # indivudual prediction
             for ex in self._extractors.values():
                 if self._needs_extractor(ex, key):
@@ -302,7 +306,7 @@ class LazyMetaEngine:
             if genres_ex:
                 genres_dict = self._meta_extractor(genres_ex, genres_base)
                 out.update(genres_dict)
-                
+
         moods_base = "meta_moods"
         if key is None or key.startswith(moods_base):
             moods_ex = [e for e in self._extractors.values() if e.category == "mood"]
@@ -350,10 +354,10 @@ class LazyMetaEngine:
                             }
                         else:
                             full_dict[attribute][pred_key] = pct(pred_val) if "_pct" in attribute else pred_val
-            
+
             out.update(full_dict)
         return out
-    
+
     def _meta_extractor(self, extractors: Sequence[LabelExtractor], meta_base: str) -> dict[str, Any]:
         out: dict[str, Any] = {}
         for ex in extractors:

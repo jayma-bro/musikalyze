@@ -4,17 +4,51 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Literal, Dict
-
-
-def load_label_list(labels_path: Path) -> list[str]:
-    raw = labels_path.read_text(encoding="utf-8")
-    data = json.loads(raw)
+from typing import Any, Dict, Literal
+def load_label_list(
+    labels_path: Path,
+    extractor_name: str | None = None,
+) -> list[str]:
+    """Load label list from a JSON file (list of strings or {"classes": [...]})."""
+    label = f' (extractor "{extractor_name}")' if extractor_name else ""
+    for enc in ("utf-8", "utf-16-le", "utf-16-be", "latin-1"):
+        try:
+            raw = labels_path.read_text(encoding=enc)
+            break
+        except (UnicodeDecodeError, ValueError):
+            continue
+    else:
+        raise ValueError(
+            f"Cannot decode labels file {labels_path}{label}: "
+            f"all encodings (utf-8, utf-16-le, utf-16-be, latin-1) failed"
+        )
+    raw = raw.lstrip("\ufeff")
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise ValueError(
+            f"Invalid JSON in {labels_path}{label}: {e} "
+            f"(first 200 chars: {repr(raw[:200])})"
+        ) from e
     if isinstance(data, list):
         return [str(x) for x in data]
     if isinstance(data, dict) and "classes" in data:
         return [str(x) for x in data["classes"]]
-    raise ValueError(f"Format JSON de labels non reconnu: {labels_path}")
+    raise ValueError(
+        f"Unexpected JSON structure in {labels_path}{label}: "
+        f"expected a JSON list or a dict with 'classes' key, "
+        f"got {type(data).__name__}"
+    )
+
+
+def meta_key_base(obj: object) -> str:
+    category = getattr(obj, "category", "other")
+    name = getattr(obj, "name", "unknown")
+    if category == "mood":
+        return f"meta_mood_{name}"
+    if category == "genre":
+        return f"meta_genre_{name}"
+    return f"meta_{name}"
 
 
 def mean_pool_time(pred: Any) -> Any:
@@ -45,7 +79,6 @@ def probs_from_raw(pooled: Any) -> Any:
 
 def main_sub_from_label(label: str, separators: tuple[str, ...]) -> tuple[str, str]:
     """Main segment (before first separator) and subgenre (last segment)."""
-
     s = label.strip()
     if not s:
         return "", ""
@@ -58,7 +91,8 @@ def main_sub_from_label(label: str, separators: tuple[str, ...]) -> tuple[str, s
                 return parts[0], ""
     return s, ""
 
-def merge_values(existing: Union[List, Dict, str], new: Union[List, Dict, str]) -> Union[List, Dict]:
+
+def merge_values(existing: list | dict | str, new: list | dict | str) -> list | dict:
     """Merge tow values"""
     if isinstance(new, list):
         existing_list = [existing] if not isinstance(existing, list) else existing
@@ -80,14 +114,6 @@ def merge_values(existing: Union[List, Dict, str], new: Union[List, Dict, str]) 
         raise TypeError(f"Type not managed : {type(new)}")
 
 
-def meta_key_base(obj: LabelExtractor | PredictionRecord) -> str:
-    if obj.category == "mood":
-        return f"meta_mood_{obj.name}"
-    if obj.category == "genre":
-        return f"meta_genre_{obj.name}"
-    return f"meta_{obj.name}"
-
-
 def stringify(dictionary: Dict[str, Any]) -> Dict[str, str]:
     out = {}
     for item in dictionary:
@@ -95,5 +121,9 @@ def stringify(dictionary: Dict[str, Any]) -> Dict[str, str]:
     return(out)
 
 
-def pct(value: Union[float, list[float]])-> Union[int, list[int]]:
-    return int(round(value*100)) if type(value) == float else [int(round(n*100)) for n in value]
+def pct(value: float | list[float]) -> int | list[int]:
+    return int(round(value * 100)) if type(value) == float else [int(round(n * 100)) for n in value]
+
+
+# Re-export for backwards compatibility
+__all__ = ["load_label_list", "mean_pool_time", "merge_values", "meta_key_base", "pct"]

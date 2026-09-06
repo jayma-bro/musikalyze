@@ -8,14 +8,14 @@ version = "0.4.0"
 description = "Analyse audio (Essentia/TF), tags et export multi-formats"
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "MIT" }
+license = "MIT"
 license-files = ["LICENSE"]
 keywords = ["music", "audio", "analysis", "essentia"]
 authors = [{ name = "jayma brochier" }]
 dependencies = [
     "mutagen>=1.47",
     "numpy>=1.24",
-    "essentia-tensorflow>=2.1",
+    "essentia-tensorflow>=2",
 ]
 
 [project.optional-dependencies]

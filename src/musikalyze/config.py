@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal, Mapping, Sequence, Union
+from typing import Any, Dict, Literal, Mapping, Sequence, Union
 import json
 
 from musikalyze.analysis_ops import (
