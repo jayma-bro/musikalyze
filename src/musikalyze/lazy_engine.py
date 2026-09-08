@@ -233,7 +233,7 @@ class LazyMetaEngine:
             d, _ = Danceability()(self._audio)
             pred_list.append({
                 "name": "danceability",
-                "labels": float(d),
+                "labels": round(float(d), 2),
             })
         if key is None or key in ["meta_rgain_gain", "meta_rgain_peak", "meta_rgain_peak_dbfs"]:
             from essentia.standard import LoudnessEBUR128
@@ -382,10 +382,10 @@ class LazyMetaEngine:
         return out
 
     def get_one_meta(self, key: str) -> Any:
-        m = self.build_flat_meta(key)
-        if key not in m:
-            m = self.build_flat_meta(None)
-        return m.get(key)
+        meta_dict = self.build_flat_meta(key)
+        if key not in meta_dict:
+            meta_dict = self.build_flat_meta(None)
+        return meta_dict.get(key)
 
     def _stringify(self, dictionary: Dict[str, Any]) -> Dict[str, str]:
         out = {}

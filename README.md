@@ -1,6 +1,6 @@
 # musikalyze
 
-Python library to **analyze** audio with **Essentia + TensorFlow** (EffNet Discogs, MAEST, classifier heads), **read/write tags** (Mutagen), and **transcode** with **ffmpeg** using path templates.
+**Analyse audio** (Essentia + TensorFlow → EffNet Discogs, MAEST, classifier heads), **lit les tags** (Mutagen), et **exporte en multi-formats** avec ffmpeg en utilisant des gabarits de chemins.
 
 Pre-trained **Essentia model weights** are licensed under **CC BY-NC-SA 4.0** (non-commercial). See [Essentia models](https://essentia.upf.edu/documentation/models.html).
 
@@ -10,26 +10,27 @@ Full **API and metadata key reference**: [METADATA.md](METADATA.md).
 
 - Python 3.10+
 - `ffmpeg` on `PATH`
-- ML stack: `pip install -e ".[tensorflow]"` (`essentia-tensorflow`)
+- `essentia-tensorflow` (ML backend)
 
 ## Install
 
 ```bash
-cd music_organizer
 pip install -e .
-pip install -e ".[tensorflow]"
+pip install -e ".[dev]"  # optional: dev dependencies (pytest, ruff)
 ```
 
 ## Models
 
-Download `.pb` / `.json` from [Essentia models](https://essentia.upf.edu/documentation/models.html) (e.g. [discogs-effnet](https://essentia.upf.edu/models/feature-extractors/discogs-effnet/), MAEST, genre/mood heads). Set `input_tensor` / `output_tensor` on each `LabelExtractor` to match the graph. For **MAEST embeddings**, use `EmbeddingModel(backend="maest", …)`; musikalyze calls `**TensorflowPredictMAEST`** (not the generic `TensorflowPredict` pool API).
+Download `.pb` / `.json` from [Essentia models](https://essentia.upf.edu/documentation/models.html):
 
-## Usage
+- **Embedding models**: Discogs EffNet, MAEST (for feature extraction)
+- **Classifier heads**: Genre/mood classification/regression models (`.pb` + label lists in `.json`)
 
-### Embeddings + label heads
+For **MAEST embeddings**, the `EmbeddingModel` uses Essentia's `TensorflowPredictMAEST` with optional `patch_size`, `patch_hop_size`, and `batch_size`. Classifier heads use the generic `TensorflowPredict2D` API.
 
-1. `**analyze_file()**` runs **every** `EmbeddingModel` once and caches the tensors.
-2. **Label heads** and **classical** descriptors (`meta_bpm`, etc.) run **only when** a template or `label()` needs them.
+> **Note**: `input_tensor` / `output_tensor` names vary per `.pb` file. Adjust them on each `LabelExtractor` and `EmbeddingModel` to match your graph.
+
+## Quick Start
 
 ```python
 from pathlib import Path
@@ -42,39 +43,42 @@ from musikalyze import (
     TaggingConfig,
 )
 
-data = Path("./data")
-
+# Define embedding models (feature extractors)
 effnet = EmbeddingModel(
     name="effnet",
-    embedding_model=data / "discogs-effnet-bs64-1.pb",
-    embedding_output="PartitionedCall:1",
-    backend="effnet_discogs",
+    embedding_model=Path("./models/discogs-effnet-bs64-1.pb"),
 )
 maest = EmbeddingModel(
     name="maest",
-    embedding_model=data / "discogs-maest-30s-pw-519l-2.pb",
-    embedding_output="PartitionedCall/Identity_12",  # adjust to your graph
-    backend="maest",
+    embedding_model=Path("./models/discogs-maest-30s-pw-519l-2.pb"),
 )
 
+# Define classifier heads on top of embeddings
 genre400 = LabelExtractor(
     name="genre400",
+    embedder_name="effnet",
+    graph_path=Path("./models/genre_discogs400-discogs-effnet-1.pb"),
+    labels_path=Path("./models/genre_discogs400-discogs-effnet-1.json"),
     category="genre",
-    embedder="effnet",
-    graph_path=data / "genre_discogs400-discogs-effnet-1.pb",
-    labels_path=data / "genre_discogs400-discogs-effnet-1.json",
-    genre_main=True,
-    genre_count=5,
 )
 
+mood_happy = LabelExtractor(
+    name="happy",
+    embedder_name="effnet",
+    graph_path=Path("./models/mood_happy-discogs-effnet-1.pb"),
+    labels_path=Path("./models/mood_happy-discogs-effnet-1.json"),
+    category="mood",
+)
+
+# Configure tagging templates and export settings
 music = MusicProcess(
-    audio_file=data / "track.mp3",
+    audio_file=Path("./data/track.mp3"),
     embedders=[effnet, maest],
-    label_extractors=[genre400],
+    extractors=[genre400, mood_happy],
     tagging_config=TaggingConfig(
-        genre="{meta_genre_main}",
         artist="{tag_artist}",
         title="{tag_title}",
+        genre="{meta_genre_main}",
     ),
     export_config=ExportConfig(
         output_root=Path("./output"),
@@ -84,57 +88,106 @@ music = MusicProcess(
     ),
 )
 
+# Run the full pipeline
 music.process_file()
-# Or step by step: read_tags, load_audio, analyze_file, tag_file, export_file
-# music.meta_bpm, music.label("meta_mood_happy"), music.label(["meta_key", "meta_bpm"])
+# Or step by step: read_tags(), load_audio(), analyze_file(), tag_file(), export_file()
+
+# Access predictions programmatically
+labels = music.labels  # dict of all computed labels
+bpm = music.meta_bpm  # shortcut: same as music.label("meta_bpm")
 ```
 
-### Templates
+## Workflow
 
-Only Python `str.format` syntax: `{tag_artist}`, `{meta_genre}`, `{tag_track_number:02d}`, etc.
+`MusicProcess` provides both a full pipeline and step-by-step methods:
 
-### Export and tags
+| Method | Description |
+|---|---|
+| `process_file()` | Full pipeline: read tags → load audio → analyze → tag → export |
+| `read_tags()` | Read metadata from the source file (Mutagen) |
+| `load_audio()` | Decode to mono float32 at 16 kHz for Essentia analysis |
+| `analyze_file()` | Compute all registered embedding models (EffNet, MAEST) once |
+| `tag_file()` | Resolve `TaggingConfig` templates into resolved tag values |
+| `export_file()` | Transcode with ffmpeg and write metadata |
+| `labels` | Property — returns all computed labels as a `dict[str, Any]` |
+| `label(key)` | Programmatic access to a single key or a list of keys |
+| `preview_path(ext)` | Resolved output path without writing to disk |
+| `format_preview(template)` | Resolve an arbitrary template string with current tags + metadata |
+| `audio_mono` | Property — mono audio signal after `load_audio()` |
+| `tags_original` | Property — original tags read from the file |
+| `tags_resolved` | Property — resolved tags after `tag_file()` |
 
-Unless you map a field in `TaggingConfig`, its value is **not** recomputed: **export metadata starts from the original file tags** and **overrides** only the logical keys produced by `tag_file()` (e.g. if you only set the `genre` template, other tags stay as on disk). ffmpeg receives the merged map (see `merge_logical_tags_for_export` in `tagging.py`).
+### Lazy Evaluation
 
-### Parallel batch
+- **Embeddings** (`EffNet`, `MAEST`) are computed **once** via `analyze_file()` and cached.
+- **Classifier heads** and **classical descriptors** (`meta_bpm`, `meta_key`, etc.) run **lazily** — only when a template or `label()` needs them.
+- Calling `load_audio()` invalidates the embedding cache, so subsequent `analyze_file()` recomputes everything fresh.
 
-`process_files_parallel` takes the same `embedders` / `label_extractors` / configs and pickles them into workers. Use a `if __name__ == "__main__":` guard on some platforms.
+### Meta Access via Attributes
+
+Any attribute starting with `meta_` resolves automatically:
+
+```python
+music.meta_bpm      # → same as music.label("meta_bpm")
+music.meta_genre    # → top genre labels
+music.meta_mood_happy_val  # → confidence score for mood_happy
+```
+
+## Templates
+
+Templates use Python `str.format` syntax: `{tag_artist}`, `{meta_genre}`, `{tag_track_number:02d}`, etc.
+
+- `{tag_*}` values come from the source file's metadata tags.
+- `{meta_*}` values come from audio analysis (classical Essentia descriptors + ML model predictions).
+- Missing keys resolve to empty strings — no errors.
+
+### Export and Tags
+
+Unless you map a field in `TaggingConfig`, its value is **not recomputed**: export metadata starts from the original file tags and **overrides** only the logical keys produced by `tag_file()`.
+
+## Parallel Batch Processing
+
+`process_files_parallel` processes multiple audio files concurrently using separate processes:
 
 ```python
 from pathlib import Path
+from musikalyze import list_audio_files, process_files_parallel
 
-from musikalyze import ExportConfig, MusicProcess, TaggingConfig, list_audio_files, process_files_parallel
-
-# build embedders / extractors as above, then:
 paths = list_audio_files(Path("./library"))
-process_files_parallel(
+results = process_files_parallel(
     paths,
     embedders=[effnet],
-    label_extractors=[genre400],
+    extractors=[genre400],
     tagging_config=TaggingConfig(),
     export_config=ExportConfig(output_root=Path("./out"), formats="opus"),
     max_workers=4,
 )
+# results: list of (audio_path_str, success: bool, error_message_or_None)
 ```
 
-## Tests
+Use a `if __name__ == "__main__":` guard on platforms that require it (e.g., Windows).
 
-```bash
-PYTHONPATH=src python3 -m unittest discover -s tests -v
+```python
+from musikalyze import sample_audio_files
+
+paths = sample_audio_files(Path("./library"), sample=0.1)  # 10% sample
 ```
 
-## Embedding backends
+## Error Classes
 
+| Exception | Meaning |
+|---|---|
+| `UnknownEmbedderError` | An extractor references an embedding name not in the `embedders` list |
+| `PredictionError` | TensorFlow / Essentia inference failure for a classifier head |
+| `UnknownMetaKeyError` | Requested metadata key is unavailable |
 
-| `EmbeddingModel.backend` | Essentia algorithm                                                                                |
-| ------------------------ | ------------------------------------------------------------------------------------------------- |
-| `effnet_discogs`         | `TensorflowPredictEffnetDiscogs`                                                                  |
-| `maest`                  | `TensorflowPredictMAEST` (optional: `patch_size`, `patch_hop_size`, `batch_size`, `input_tensor`) |
+## Embedding Models
 
+| `EmbeddingModel.name` | Essentia Algorithm | Notes |
+|---|---|---|
+| `"effnet"` | `TensorflowPredictEffnetDiscogs` | Discogs EffNet embedding model |
+| `"maest"` | `TensorflowPredictMAEST` | MAEST with optional `patch_size`, `patch_hop_size`, `batch_size` |
 
-## Limitations
+## Supported Audio Formats
 
-- **WMA** and some containers: limited tag support.
-- **ReplayGain in `meta_*`**: read from tags only; loudness **computation** is future work.
-- **Tensor names** vary per `.pb`; adjust `LabelExtractor` / `EmbeddingModel` accordingly.
+Essentia handles: `.wav`, `.mp3`, `.flac`, `.aiff`, `.ogg`. Other formats (`.m4a`, `.aac`, `.wma`, etc.) are converted via ffmpeg on the fly.
