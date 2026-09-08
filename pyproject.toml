@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "musikalyze"
-version = "0.4.0"
+version = "0.5.0"
 description = "Analyse audio (Essentia/TF), tags et export multi-formats"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -17,6 +17,7 @@ dependencies = [
     "numpy>=1.24",
     "essentia-tensorflow>=2",
     "pandas >=3.0",
+    "tqdm>=4.66",
 ]
 
 [project.optional-dependencies]

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -281,16 +281,26 @@ class LazyMetaEngine:
             return True
         return False
 
-    def build_flat_meta(self, key: str | None = None) -> dict[str, Any]:
+    def build_flat_meta(self, key: str | Iterable[str] | None = None) -> dict[str, Any]:
+        """Flat ``meta_*`` mapping for one key, a collection of keys, or everything (``None``)."""
+        if key is None or isinstance(key, str):
+            return self._build_flat_meta_one(key)
+        out: dict[str, Any] = {}
+        for k in key:
+            out.update(self._build_flat_meta_one(k))
+        return out
+
+    def _build_flat_meta_one(self, key: str | None) -> dict[str, Any]:
         out: dict[str, Any] = {}
         if key is None:
             self.compute_all_extractor()
             for pred in self._pred.values():
                 out.update(pred.flat_meta_from_record)
         else:
-            # classical keys
+            # classical keys (compute missing ones on demand)
+            self._ensure_classical_key(key)
             for ck in _CLASSICAL_KEYS:
-                if key.startswith(ck):
+                if key.startswith(ck) and ck in self._pred:
                     out.update(self._pred[ck].flat_meta_from_record)
 
             # indivudual prediction

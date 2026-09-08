@@ -144,31 +144,51 @@ Templates use Python `str.format` syntax: `{tag_artist}`, `{meta_genre}`, `{tag_
 ### Export and Tags
 
 Unless you map a field in `TaggingConfig`, its value is **not recomputed**: export metadata starts from the original file tags and **overrides** only the logical keys produced by `tag_file()`.
+## Batch Processing
 
-## Parallel Batch Processing
-
-`process_files_parallel` processes multiple audio files concurrently using separate processes:
+`MusicBatch` unifies listing, analysis, and export over a whole directory:
 
 ```python
 from pathlib import Path
-from musikalyze import list_audio_files, process_files_parallel
+from musikalyze import MusicBatch
 
-paths = list_audio_files(Path("./library"))
-results = process_files_parallel(
-    paths,
+batch = MusicBatch(
+    Path("./library"),
     embedders=[effnet],
-    extractors=[genre400],
-    tagging_config=TaggingConfig(),
-    export_config=ExportConfig(output_root=Path("./out"), formats="opus"),
-    max_workers=4,
+    extractors=[genre400, mood_happy],
+    export_config=ExportConfig(
+        output_root=Path("./out"),
+        formats="opus",
+        path_template="{tag_artist}/{tag_album}/{tag_track_number:02d} - {tag_title}.{ext}",
+    ),
+    max_workers=4,  # optional: parallel files with ProcessPoolExecutor
 )
-# results: list of (audio_path_str, success: bool, error_message_or_None)
+
+batch.files                      # list[str] of audio paths (sorted)
+len(batch), batch.summary()      # count, extensions histogram, total size
+
+# Analysis → pandas DataFrame (one row per file)
+df = batch.analyze("genre400_all")   # dict values explode: one column per label
+df = batch.analyze("meta_bpm")       # scalar keys: single column
+df = batch.analyze("tag_artist")     # tag_* keys come from file tags
+
+# Export: transcode + write tags (progress bar, per-file errors logged & skipped)
+batch.export("./output")             # overrides export_config.output_root
+
+batch.preview_paths("opus")          # dry-run: destination paths, nothing written
+batch.sample(0.1)                    # new batch with a 10% random sample
 ```
 
-Use a `if __name__ == "__main__":` guard on platforms that require it (e.g., Windows).
+Heavy methods (`analyze`, `export`, `preview_paths`) show a progress bar
+(`tqdm`; notebook-friendly). Each file is processed independently: a failure is
+logged as a warning and skipped, never aborting the batch. When
+`max_workers > 1`, files run in parallel worker processes. Use a
+`if __name__ == "__main__":` guard on platforms that require it (e.g., Windows).
+
+The low-level helpers remain available:
 
 ```python
-from musikalyze import sample_audio_files
+from musikalyze import list_audio_files, sample_audio_files
 
 paths = sample_audio_files(Path("./library"), sample=0.1)  # 10% sample
 ```

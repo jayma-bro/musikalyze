@@ -1,5 +1,10 @@
 """musikalyze — Essentia-based audio analysis, tagging, and transcoding."""
 
+from musikalyze.batch import (
+    MusicBatch,
+    list_audio_files,
+    sample_audio_files,
+)
 from musikalyze.config import (
     AnalysisResult,
     EmbeddingModel,
@@ -8,15 +13,10 @@ from musikalyze.config import (
     TaggingConfig,
 )
 from musikalyze.exceptions import (
-    musikalyzeError,
     PredictionError,
     UnknownEmbedderError,
     UnknownMetaKeyError,
-)
-from musikalyze.batch import (
-    list_audio_files,
-    sample_audio_files,
-    process_files_parallel,
+    musikalyzeError,
 )
 
 __all__ = [
@@ -24,18 +24,18 @@ __all__ = [
     "EmbeddingModel",
     "ExportConfig",
     "LabelExtractor",
-    "TaggingConfig",
-    "musikalyzeError",
+    "MusicBatch",
+    "MusicProcess",
     "PredictionError",
+    "TaggingConfig",
     "UnknownEmbedderError",
     "UnknownMetaKeyError",
-    "MusicProcess",
     "list_audio_files",
+    "musikalyzeError",
     "sample_audio_files",
-    "process_files_parallel",
 ]
 
-__version__ = "0.3.0"
+__version__ = "0.5.0"
 
 
 def __getattr__(name: str):
