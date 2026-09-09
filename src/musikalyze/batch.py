@@ -11,13 +11,11 @@ from dataclasses import asdict, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import pandas as pd
 from tqdm.auto import tqdm
 
 from musikalyze.config import EmbeddingModel, ExportConfig, LabelExtractor, TaggingConfig
 from musikalyze.process import MusicProcess
-
-if TYPE_CHECKING:
-    import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -251,6 +249,8 @@ class MusicBatch:
         self.max_workers = max_workers
         self._paths: list[Path] | None = None
         self._failures: list[tuple[str, str]] = []
+        self._df_analyse: pd.DataFrame | None = None
+        self._key_analyse: str | None = None
 
     # -- discovery ----------------------------------------------------------
 
@@ -314,13 +314,17 @@ class MusicBatch:
         per label; scalar keys yield a single column. Failed files produce a
         row with ``None`` values and a logged warning.
         """
-        import pandas as pd
 
         if not key:
             raise ValueError("key is required")
         norm_key = key if key.startswith(("tag_", "meta")) else f"meta_{key}"
         if not self.paths:
             raise ValueError(f"No audio files found in {self.root}")
+
+        if key == self._key_analyse and type(self._df_analyse) == pd.DataFrame:
+            return self._df_analyse
+        else:
+            self._key_analyse = None
 
         results: list[tuple[str, dict[str, Any] | None, str | None]] = []
         if self._use_pool():
@@ -349,6 +353,8 @@ class MusicBatch:
                     seen.add(c)
                     columns.append(c)
         df = pd.DataFrame(rows, columns=columns)
+        self._df_analyse = df
+        self._key_analyse = key
         return df.sort_values("_path", kind="stable").reset_index(drop=True)
 
     def export(self, folder: Path | str) -> None:
