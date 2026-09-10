@@ -306,7 +306,7 @@ class MusicBatch:
 
     # -- heavy pipeline -----------------------------------------------------
 
-    def analyze(self, key: str | list[str]) -> pd.DataFrame:
+    def analyze(self, key: str | list[str] = "analyze") -> pd.DataFrame:
         """Analyze every file and return a DataFrame with one row per file.
 
         ``key`` can be:
@@ -320,7 +320,7 @@ class MusicBatch:
         """
         if not key:
             raise ValueError("key is required")
-        
+
         if key == "analyze":
             if not self.paths:
                 raise ValueError(f"No audio files found in {self.root}")
