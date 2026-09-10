@@ -65,7 +65,17 @@ class PredictionRecord:
     def flat_meta_from_record(self) -> dict[str, Any]:
         base = meta_key_base(self)
         if self.category == "classical":
-            return {base: self.top_label}
+            out: dict[str, Any] = {
+                f"{base}_val": self.top_score,
+                f"{base}_val_pct": pct(self.top_score),
+                f"{base}_dict": self._dict(self.top_label, self.top_score),
+                f"{base}_dict_pct": self._dict(self.top_label, pct(self.top_score)),
+                f"{base}_all": self._dict(self.labels, self.scores),
+                f"{base}_all_pct": self._dict(self.labels, pct(self.scores)),
+                base: self.top_label
+            }
+            out.update(self._stringify(out))
+            return out
 
         out: dict[str, Any] = {
             f"{base}_val": self.top_score,

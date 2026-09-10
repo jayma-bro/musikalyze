@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 import json
 import logging
 from collections import Counter
@@ -305,64 +306,127 @@ class MusicBatch:
 
     # -- heavy pipeline -----------------------------------------------------
 
-    def analyze(self, key: str) -> pd.DataFrame:
+    def analyze(self, key: str | list[str]) -> pd.DataFrame:
         """Analyze every file and return a DataFrame with one row per file.
 
-        ``key`` is a metadata key (``meta_`` prefix added if missing; ``tag_*``
-        keys are read from file tags). If the resolved value is a dict (e.g.
-        ``"genre400_all"`` → ``{label: score}``), it is exploded into one column
+        ``key`` can be:
+        - ``"analyze"``: returns a default DataFrame with filename, filepath, artist, album, title, track, and metas_all_pct
+        - A single metadata key (``meta_`` prefix added if missing; ``tag_*`` keys are read from file tags)
+        - A list of metadata keys: returns a DataFrame with those keys
+
+        If the resolved value is a dict (e.g. ``"genre400_all"`` → ``{label: score}``), it is exploded into one column
         per label; scalar keys yield a single column. Failed files produce a
         row with ``None`` values and a logged warning.
         """
-
         if not key:
             raise ValueError("key is required")
-        norm_key = key if key.startswith(("tag_", "meta")) else f"meta_{key}"
-        if not self.paths:
-            raise ValueError(f"No audio files found in {self.root}")
-
-        if key == self._key_analyse and type(self._df_analyse) == pd.DataFrame:
-            return self._df_analyse
-        else:
-            self._key_analyse = None
-
-        results: list[tuple[str, dict[str, Any] | None, str | None]] = []
-        if self._use_pool():
-            emb_d = [_serialize_embedding(e) for e in self.embedders]
-            ex_d = [_serialize_extractor(e) for e in self.extractors]
-            with ProcessPoolExecutor(max_workers=self.max_workers) as pool:
-                futs = [
-                    pool.submit(_worker_analyze_one, str(p), emb_d, ex_d, self.separator)
-                    for p in self.paths
-                ]
-                for fut in tqdm(as_completed(futs), total=len(futs), desc=f"Analyzing {norm_key}", unit="file"):
-                    results.append(fut.result())
-        else:
-            for p in tqdm(self.paths, desc=f"Analyzing {norm_key}", unit="file"):
+        
+        if key == "analyze":
+            if not self.paths:
+                raise ValueError(f"No audio files found in {self.root}")
+            # Build default analyze DataFrame
+            rows = []
+            for p in tqdm(self.paths, desc="Analyzing (default)", unit="file"):
                 try:
-                    results.append((str(p), self._make_process(p).labels, None))
-                except Exception as e:  # noqa: BLE001
-                    results.append((str(p), None, f"{type(e).__name__}: {e}"))
+                    proc = self._make_process(p)
+                    proc.read_tags()
+                    proc.load_audio()
+                    if not proc._embeddings_ready:
+                        proc.analyze_file()
+                    labels = proc.labels
+                    row = {
+                        "filename": proc.audio_path.name,
+                        "filepath": str(proc.audio_path),
+                        "artist": proc._tags_raw.get("artist", ""),
+                        "album": proc._tags_raw.get("album", ""),
+                        "title": proc._tags_raw.get("title", ""),
+                        "track": proc._tags_raw.get("tracknumber", ""),
+                    }
+                    if "metas_all_pct" in labels:
+                        row["metas_all_pct"] = labels["metas_all_pct"]
+                    rows.append(row)
+                except Exception as e:
+                    logger.warning("Analysis failed for %s: %s", p, e)
+                    rows.append({"filename": p.name, "filepath": str(p), "error": str(e)})
+            return pd.DataFrame(rows)
+        elif isinstance(key, list):
+            if not self.paths:
+                raise ValueError(f"No audio files found in {self.root}")
+            # Build DataFrame with specified keys
+            rows = []
+            for p in tqdm(self.paths, desc=f"Analyzing ({len(key)} keys)", unit="file"):
+                try:
+                    proc = self._make_process(p)
+                    proc.read_tags()
+                    proc.load_audio()
+                    if not proc._embeddings_ready:
+                        proc.analyze_file()
+                    labels = proc.labels
+                    row = {"_path": str(p)}
+                    for k in key:
+                        if k in labels:
+                            row[k] = labels[k]
+                        else:
+                            row[k] = None
+                    rows.append(row)
+                except Exception as e:
+                    logger.warning("Analysis failed for %s: %s", p, e)
+                    row = {"_path": str(p)}
+                    for k in key:
+                        row[k] = None
+                    row["error"] = str(e)
+                    rows.append(row)
+                gc.collect()
+            return pd.DataFrame(rows)
+        else:
+            norm_key = key if key.startswith(("tag_", "meta")) else f"meta_{key}"
+            if not self.paths:
+                raise ValueError(f"No audio files found in {self.root}")
 
-        rows = [_row_from_labels(path, labels, norm_key, error) for path, labels, error in results]
-        columns: list[str] = []
-        seen: set[str] = set()
-        for row in rows:
-            for c in row:
-                if c not in seen:
-                    seen.add(c)
-                    columns.append(c)
-        df = pd.DataFrame(rows, columns=columns)
-        self._df_analyse = df
-        self._key_analyse = key
-        return df.sort_values("_path", kind="stable").reset_index(drop=True)
+            if key == self._key_analyse and type(self._df_analyse) == pd.DataFrame:
+                return self._df_analyse
+            else:
+                self._key_analyse = None
 
-    def export(self, folder: Path | str) -> None:
+            results: list[tuple[str, dict[str, Any] | None, str | None]] = []
+            if self._use_pool():
+                emb_d = [_serialize_embedding(e) for e in self.embedders]
+                ex_d = [_serialize_extractor(e) for e in self.extractors]
+                with ProcessPoolExecutor(max_workers=self.max_workers) as pool:
+                    futs = [
+                        pool.submit(_worker_analyze_one, str(p), emb_d, ex_d, self.separator)
+                        for p in self.paths
+                    ]
+                    for fut in tqdm(as_completed(futs), total=len(futs), desc=f"Analyzing {norm_key}", unit="file"):
+                        results.append(fut.result())
+            else:
+                for p in tqdm(self.paths, desc=f"Analyzing {norm_key}", unit="file"):
+                    try:
+                        results.append((str(p), self._make_process(p).labels, None))
+                    except Exception as e:  # noqa: BLE001
+                        results.append((str(p), None, f"{type(e).__name__}: {e}"))
+
+            rows = [_row_from_labels(path, labels, norm_key, error) for path, labels, error in results]
+            columns: list[str] = []
+            seen: set[str] = set()
+            for row in rows:
+                for c in row:
+                    if c not in seen:
+                        seen.add(c)
+                        columns.append(c)
+            df = pd.DataFrame(rows, columns=columns)
+            self._df_analyse = df
+            self._key_analyse = key
+            return df.sort_values("_path", kind="stable").reset_index(drop=True)
+
+    def export(self, folder: Path | str, delete_after: bool = False) -> None:
         """Run the full pipeline (tags → analyze → tag templates → ffmpeg export) on every file.
 
         ``folder`` becomes the export output root, overriding
         ``export_config.output_root``. If no ``export_config`` was given, a
         default one (``formats="opus"``, default path template) is used.
+        If ``delete_after`` is True, deletes the original file after successful
+        export (and removes empty parent directories).
         Failures are logged and skipped; see ``self._failures`` afterwards.
         """
         folder = Path(folder)
@@ -394,6 +458,21 @@ class MusicBatch:
             for p in self.paths:
                 try:
                     self._make_process(p, export_config=export_cfg).process_file()
+                    if delete_after:
+                        # Delete the original file after successful export
+                        if p.exists():
+                            p.unlink()
+                            # Remove empty parent directories
+                            parent = p.parent
+                            while parent != self.root:
+                                try:
+                                    if parent.is_dir() and not any(parent.iterdir()):
+                                        parent.rmdir()
+                                        parent = parent.parent
+                                    else:
+                                        break
+                                except OSError:
+                                    break
                 except Exception as e:  # noqa: BLE001
                     logger.warning("Export failed for %s: %s", p, e)
                     failures.append((str(p), f"{type(e).__name__}: {e}"))

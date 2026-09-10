@@ -7,6 +7,8 @@ from dataclasses import fields
 from pathlib import Path
 from typing import Any
 
+import pandas as pd
+
 from musikalyze.audio_io import load_audio
 from musikalyze.analysis_ops import meta_key_base
 from musikalyze.config import (
@@ -256,6 +258,63 @@ class MusicProcess:
             ext,
             sanitize=self.export_config.sanitize_paths,
         )
+
+    def analyze(self, key: str | list[str] | None = None) -> dict[str, Any] | pd.DataFrame:
+        """
+        Return analysis results in a standardized format.
+        
+        If key is "analyze", returns a DataFrame with main tags, filename, path, and metas_all_pct.
+        If key is a list of keys, returns a DataFrame with those keys.
+        Otherwise, returns the standard labels dict.
+        """
+        if key == "analyze":
+            # Get all tags and audio info
+            self.read_tags()
+            self.load_audio()
+            if not self._embeddings_ready:
+                self.analyze_file()
+                
+            # Build basic info
+            info = {
+                "filename": self.audio_path.name,
+                "filepath": str(self.audio_path),
+                "artist": self._tags_raw.get("artist", ""),
+                "album": self._tags_raw.get("album", ""),
+                "title": self._tags_raw.get("title", ""),
+                "track": self._tags_raw.get("tracknumber", ""),
+            }
+            
+            # Get all metadata
+            all_meta = self.labels
+            
+            # Add metas_all_pct if available
+            if "metas_all_pct" in all_meta:
+                info["metas_all_pct"] = all_meta["metas_all_pct"]
+            
+            # Create DataFrame
+            return pd.DataFrame([info])
+        elif isinstance(key, list):
+            # Return DataFrame with specified keys
+            self.read_tags()
+            self.load_audio()
+            if not self._embeddings_ready:
+                self.analyze_file()
+            
+            # Get all metadata
+            all_meta = self.labels
+            
+            # Build DataFrame with requested keys
+            data = {}
+            for k in key:
+                if k in all_meta:
+                    data[k] = [all_meta[k]]
+                else:
+                    data[k] = [None]
+            
+            return pd.DataFrame(data)
+        else:
+            # Return standard labels dict
+            return self.labels
 
     def format_preview(self, template: str) -> str:
         if not self._tags_prefixed:

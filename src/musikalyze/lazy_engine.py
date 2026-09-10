@@ -24,7 +24,7 @@ from musikalyze.exceptions import PredictionError, UnknownEmbedderError
 log = logging.getLogger(__name__)
 
 _CLASSICAL_KEYS = frozenset(
-    {"meta_bpm", "meta_key", "meta_scale", "meta_danceability", "meta_rgain_gain", "meta_rgain_peak", "meta_rgain_peak_dbfs"}
+    {"meta_bpm", "meta_key", "meta_scale", "meta_mood_danceability", "meta_rgain_gain", "meta_rgain_peak", "meta_rgain_peak_dbfs"}
 )
 class LazyMetaEngine:
     """Embeddings are computed once via ``compute_all_embeddings()``; heads and classical features are lazy."""
@@ -48,6 +48,23 @@ class LazyMetaEngine:
         self._audio_path: Path = audio_path
         self._flat_meta_cache: dict[str, Any] | None = None
         self._stereo_cache: tuple[Any, int] | None = None
+
+    def cleanup(self) -> None:
+        """Release resources and free memory."""
+        import gc
+        self._emb.clear()
+        self._pred.clear()
+        self._audio = None
+        self._stereo_cache = None
+        self._flat_meta_cache = None
+        gc.collect()
+
+    def __del__(self) -> None:
+        """Cleanup when object is garbage collected."""
+        try:
+            self.cleanup()
+        except Exception:
+            pass
 
     def _embedder_model(self, ex: LabelExtractor) -> EmbeddingModel:
         name = ex.embedder_name
@@ -229,7 +246,7 @@ class LazyMetaEngine:
                 "name": "scale",
                 "labels": scale,
             })
-        if key is None or key == "meta_danceability":
+        if key is None or key == "meta_mood_danceability":
             from essentia.standard import Danceability
 
             d, _ = Danceability()(self._audio)

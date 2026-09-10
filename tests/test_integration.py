@@ -438,3 +438,64 @@ class TestConfigJson:
         assert "multilabel" in tasks
         assert "classification" in tasks
         assert "regression" in tasks
+
+
+# ---------------------------------------------------------------------------
+# New features: analyze method
+# ---------------------------------------------------------------------------
+
+
+class TestIntegrationAnalyze:
+    @pytest.mark.parametrize("audio", [str(p) for p in _AUDIO_FILES if p.exists()])
+    def test_analyze_default(self, audio):
+        proc = _make_process(audio, [_GENRE_EXTRACTOR, _MOOD_HAPPY_EXTRACTOR])
+        proc.analyze_file()
+        df = proc.analyze("analyze")
+        assert df is not None
+        assert "filename" in df.columns
+        assert "filepath" in df.columns
+        assert "artist" in df.columns
+        assert "album" in df.columns
+        assert "title" in df.columns
+        assert "track" in df.columns
+
+    @pytest.mark.parametrize("audio", [str(p) for p in _AUDIO_FILES if p.exists()])
+    def test_analyze_custom_keys(self, audio):
+        proc = _make_process(audio, [_GENRE_EXTRACTOR, _MOOD_HAPPY_EXTRACTOR])
+        proc.analyze_file()
+        df = proc.analyze(["filename", "filepath", "meta_genre_genre400_all"])
+        assert df is not None
+        assert "filename" in df.columns
+        assert "filepath" in df.columns
+        assert "meta_genre_genre400_all" in df.columns
+
+    @pytest.mark.parametrize("audio", [str(p) for p in _AUDIO_FILES if p.exists()])
+    def test_analyze_dict(self, audio):
+        proc = _make_process(audio, [_GENRE_EXTRACTOR])
+        proc.analyze_file()
+        result = proc.analyze()
+        assert isinstance(result, dict)
+        assert "tag_artist" in result
+
+    def test_batch_analyze_default(self):
+        audio = _AUDIO_FILES[0]
+        if not audio.exists():
+            pytest.skip("test_1.wav not available")
+        batch = _make_process(audio, [_GENRE_EXTRACTOR, _MOOD_HAPPY_EXTRACTOR])
+        batch.analyze_file()
+        df = batch.analyze("analyze")
+        assert df is not None
+        assert "filename" in df.columns
+        assert "filepath" in df.columns
+
+    def test_batch_analyze_list_keys(self):
+        audio = _AUDIO_FILES[0]
+        if not audio.exists():
+            pytest.skip("test_1.wav not available")
+        batch = _make_process(audio, [_GENRE_EXTRACTOR, _MOOD_HAPPY_EXTRACTOR])
+        batch.analyze_file()
+        df = batch.analyze(["filename", "filepath", "meta_genre_genre400_all"])
+        assert df is not None
+        assert "filename" in df.columns
+        assert "filepath" in df.columns
+        assert "meta_genre_genre400_all" in df.columns
