@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from musikalyze.audio_io import load_audio
+from musikalyze.analysis_ops import meta_key_base
 from musikalyze.config import (
     AnalysisResult,
     EmbeddingModel,
@@ -166,7 +167,16 @@ class MusicProcess:
                 self.load_audio()
             if not self._embeddings_ready:
                 self.analyze_file()
-            out.append(self._engine().get_one_meta(nk))
+            eng = self._engine()
+            value = eng.get_one_meta(nk)
+            if value is None and not k.startswith("meta"):
+                for ex in eng._extractors.values():
+                    base = meta_key_base(ex)
+                    if ex.name == k or base == nk:
+                        value = eng.get_one_meta(base)
+                        if value is not None:
+                            break
+            out.append(value)
         return out[0] if single else out
 
     def __getattr__(self, name: str) -> Any:
