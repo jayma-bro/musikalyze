@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import fields
 from pathlib import Path
-from typing import Any, Sequence, Union
+from typing import Any
 
 from musikalyze.audio_io import load_audio
-from musikalyze.config import AnalysisResult, EmbeddingModel, ExportConfig, LabelExtractor, TaggingConfig
+from musikalyze.config import (
+    AnalysisResult,
+    EmbeddingModel,
+    ExportConfig,
+    LabelExtractor,
+    TaggingConfig,
+)
 from musikalyze.export_ffmpeg import export_multiple_formats
 from musikalyze.lazy_engine import LazyMetaEngine
 from musikalyze.tagging import (
@@ -28,7 +35,7 @@ def _tagging_template_strings(cfg: TaggingConfig) -> list[str]:
         v = getattr(cfg, f.name)
         if isinstance(v, str):
             out.append(v)
-    for _k, v in cfg.extra.items():
+    for v in cfg.extra.values():
         if isinstance(v, str):
             out.append(v)
     return out
@@ -136,7 +143,7 @@ class MusicProcess:
         self._meta_cache = meta
         return meta
 
-    def label(self, key: Union[str, Sequence[str]]) -> Union[str, Sequence[Any]]:
+    def label(self, key: str | Sequence[str]) -> str | Sequence[Any]:
         if isinstance(key, str):
             keys = [key]
             single = True

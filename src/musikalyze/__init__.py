@@ -13,6 +13,7 @@ from musikalyze.config import (
     TaggingConfig,
 )
 from musikalyze.exceptions import (
+    AudioLoadError,
     PredictionError,
     UnknownEmbedderError,
     UnknownMetaKeyError,
@@ -21,6 +22,7 @@ from musikalyze.exceptions import (
 
 __all__ = [
     "AnalysisResult",
+    "AudioLoadError",
     "EmbeddingModel",
     "ExportConfig",
     "LabelExtractor",

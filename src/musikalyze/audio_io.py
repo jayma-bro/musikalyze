@@ -5,13 +5,20 @@ from __future__ import annotations
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Any
-from essentia.standard import MonoLoader, AudioLoader
+from typing import Any, Literal
+
 import numpy as np
-import gc
-import time
-import os
+from essentia.standard import AudioLoader, MonoLoader
+
+from musikalyze.exceptions import musikalyzeError
+
 ESSENTIA_FORMAT = {'.wav', '.mp3', '.flac', '.aiff', '.ogg'}
+FFMPEG_TIMEOUT = 120  # seconds for export operations (load uses 60s)
+
+
+class AudioLoadError(musikalyzeError):
+    """Failed to load audio file."""
+
 
 def load_audio(
     path: Path | str,
@@ -24,7 +31,6 @@ def load_audio(
     if not p.is_file():
         raise FileNotFoundError(p)
     ext = p.suffix.lower()
-    use_essentia = ext in ESSENTIA_FORMAT
     if ext in ESSENTIA_FORMAT:
         try:
             audio, out_sample_rate = _load_audio(
@@ -33,8 +39,8 @@ def load_audio(
                 sample_rate=sample_rate,
                 resample_quality=resample_quality,
             )
-        except Exception:
-            raise Exception(f"the file {p.name} do not work with essentia (fix code with this file extention)")
+        except Exception as e:
+            raise AudioLoadError(f"Failed to load {p.name} with Essentia") from e
     else:
         tmp_path = _load_via_ffmpeg(p)
         audio, out_sample_rate = _load_audio(
@@ -48,7 +54,7 @@ def load_audio(
 
 def _load_audio(
     path: Path,
-    track: str,
+    track: Literal["mono", "stereo"],
     sample_rate: int,
     resample_quality: int,
 ) -> Any:
@@ -62,9 +68,10 @@ def _load_audio(
     elif track == "stereo":
         audio, out_sample_rate, _, _, _, _ = AudioLoader(filename=str(path.resolve()))()
     else:
-        raise Exception("track property impossible")
+        raise ValueError(f"Unexpected track mode: {track!r}")
     return np.asarray(audio, dtype=np.float32), out_sample_rate
     
+
 
 
 def _load_via_ffmpeg(path: Path) -> Path:

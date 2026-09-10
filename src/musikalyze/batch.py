@@ -9,7 +9,7 @@ from collections.abc import Iterable, Iterator, Sequence
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import asdict, replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import pandas as pd
 from tqdm.auto import tqdm
@@ -131,7 +131,7 @@ def _worker_analyze_one(
             separator=separator,
         )
         return (audio_path, proc.labels, None)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         return (audio_path, None, f"{type(e).__name__}: {e}")
 
 
@@ -161,7 +161,7 @@ def _worker_process_one(
         )
         proc.process_file()
         return (audio_path, True, None)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         return (audio_path, False, f"{type(e).__name__}: {e}")
 
 
@@ -341,7 +341,7 @@ class MusicBatch:
             for p in tqdm(self.paths, desc=f"Analyzing {norm_key}", unit="file"):
                 try:
                     results.append((str(p), self._make_process(p).labels, None))
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001
                     results.append((str(p), None, f"{type(e).__name__}: {e}"))
 
         rows = [_row_from_labels(path, labels, norm_key, error) for path, labels, error in results]
@@ -394,7 +394,7 @@ class MusicBatch:
             for p in self.paths:
                 try:
                     self._make_process(p, export_config=export_cfg).process_file()
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001
                     logger.warning("Export failed for %s: %s", p, e)
                     failures.append((str(p), f"{type(e).__name__}: {e}"))
                 bar.update(1)
@@ -416,7 +416,7 @@ class MusicBatch:
         for p in tqdm(self.paths, desc="Previewing paths", unit="file"):
             try:
                 out.append(self._make_process(p).preview_path(ext))
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001
                 logger.warning("Preview failed for %s: %s", p, e)
         return out
 

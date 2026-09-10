@@ -46,6 +46,8 @@ class LazyMetaEngine:
         self._emb: dict[str, Any] = {}
         self._pred: dict[str, PredictionRecord] = {}
         self._audio_path: Path = audio_path
+        self._flat_meta_cache: dict[str, Any] | None = None
+        self._stereo_cache: tuple[Any, int] | None = None
 
     def _embedder_model(self, ex: LabelExtractor) -> EmbeddingModel:
         name = ex.embedder_name
@@ -95,7 +97,7 @@ class LazyMetaEngine:
 
     def compute_all_extractor(self) -> None:
         _ = self._ensure_classical_key(None)
-        for ex_name in self._extractors.keys():
+        for ex_name in self._extractors:
             _ = self.ensure_prediction(ex_name)
 
     def embedding(self, embedder_name: str) -> Any:
@@ -104,7 +106,7 @@ class LazyMetaEngine:
         return self._emb[embedder_name]
 
     def ensure_prediction(self, extractor_name: str) -> PredictionRecord:
-        if extractor_name not in self._pred.keys():
+        if extractor_name not in self._pred:
             self._pred[extractor_name] = self.run_label_head(extractor_name)
         return self._pred[extractor_name]
 
@@ -150,7 +152,7 @@ class LazyMetaEngine:
             except Exception as e:
                 raise PredictionError(f'Head "{ex.name}" with {ex.embedder_name}: {e}') from e
         else:
-            raise Exception("Extractor's embedder not found")
+            raise UnknownEmbedderError(f"Extractor '{extractor_name}' references unknown embedder")
 
         pooled = mean_pool_time(np.asarray(raw))
         labels = []
@@ -210,10 +212,10 @@ class LazyMetaEngine:
         if key is None or key.startswith("meta_bpm"):
             from essentia.standard import RhythmExtractor2013
             new_audio, _ = load_audio(str(self._audio_path.resolve()))
-            bpm, beats, beats_confidence, _, beats_intervals = RhythmExtractor2013(method="multifeature")(new_audio)
+            bpm, _beats, _beats_confidence, _, _beats_intervals = RhythmExtractor2013(method="multifeature")(new_audio)
             pred_list.append({
                 "name": "bpm",
-                "labels": int(round(float(bpm))),
+                "labels": round(float(bpm)),
             })
         if key is None or key == "meta_key" or key == "meta_scale":
             from essentia.standard import KeyExtractor
@@ -237,8 +239,12 @@ class LazyMetaEngine:
             })
         if key is None or key in ["meta_rgain_gain", "meta_rgain_peak", "meta_rgain_peak_dbfs"]:
             from essentia.standard import LoudnessEBUR128
-            audio_stereo, sample_rate = load_audio(str(self._audio_path.resolve()), track="stereo")
-            momentary, short_term, integrated, loudness_range = LoudnessEBUR128(
+            if self._stereo_cache is None:
+                audio_stereo, sample_rate = load_audio(str(self._audio_path.resolve()), track="stereo")
+                self._stereo_cache = (audio_stereo, sample_rate)
+            else:
+                audio_stereo, sample_rate = self._stereo_cache
+            _momentary, _short_term, integrated, _loudness_range = LoudnessEBUR128(
                 sampleRate=sample_rate,
                 hopSize=0.1,
                 startAtZero=False
@@ -277,9 +283,7 @@ class LazyMetaEngine:
         if key is None:
             return True
         base = meta_key_base(ex)
-        if key == base or key.startswith(base + "_"):
-            return True
-        return False
+        return key == base or key.startswith(base + "_")
 
     def build_flat_meta(self, key: str | Iterable[str] | None = None) -> dict[str, Any]:
         """Flat ``meta_*`` mapping for one key, a collection of keys, or everything (``None``)."""
@@ -291,6 +295,9 @@ class LazyMetaEngine:
         return out
 
     def _build_flat_meta_one(self, key: str | None) -> dict[str, Any]:
+        if key is None and self._flat_meta_cache is not None:
+            return dict(self._flat_meta_cache)
+        
         out: dict[str, Any] = {}
         if key is None:
             self.compute_all_extractor()
@@ -366,6 +373,9 @@ class LazyMetaEngine:
                             full_dict[attribute][pred_key] = pct(pred_val) if "_pct" in attribute else pred_val
 
             out.update(full_dict)
+        
+        if key is None:
+            self._flat_meta_cache = dict(out)
         return out
 
     def _meta_extractor(self, extractors: Sequence[LabelExtractor], meta_base: str) -> dict[str, Any]:
@@ -397,13 +407,13 @@ class LazyMetaEngine:
             meta_dict = self.build_flat_meta(None)
         return meta_dict.get(key)
 
-    def _stringify(self, dictionary: Dict[str, Any]) -> Dict[str, str]:
-        out = {}
-        for item in dictionary:
-            if type(dictionary[item]) is str:
-                out[f"{item}_str"] = dictionary[item]
-            elif type(dictionary[item]) is list:
-                out[f"{item}_str"] = self.sep.join([str(var) for var in dictionary[item]])
+    def _stringify(self, dictionary: dict[str, Any]) -> dict[str, str]:
+        out: dict[str, str] = {}
+        for item, value in dictionary.items():
+            if type(value) is str:
+                out[f"{item}_str"] = value
+            elif type(value) is list:
+                out[f"{item}_str"] = self.sep.join([str(var) for var in value])
             else:
-                json.dumps(dictionary[item], ensure_ascii=False)
-        return(out)
+                out[f"{item}_str"] = json.dumps(value, ensure_ascii=False)
+        return out

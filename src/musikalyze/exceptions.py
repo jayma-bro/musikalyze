@@ -7,6 +7,10 @@ class musikalyzeError(Exception):
     """Base error."""
 
 
+class AudioLoadError(musikalyzeError):
+    """Failed to load audio file."""
+
+
 class UnknownEmbedderError(musikalyzeError):
     """Unknown embedding name in the registry."""
 

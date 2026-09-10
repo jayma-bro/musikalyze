@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Dict, Literal
+from typing import Any
+
+
 def load_label_list(
     labels_path: Path,
     extractor_name: str | None = None,
@@ -28,7 +30,7 @@ def load_label_list(
     except json.JSONDecodeError as e:
         raise ValueError(
             f"Invalid JSON in {labels_path}{label}: {e} "
-            f"(first 200 chars: {repr(raw[:200])})"
+            f"(first 200 chars: {raw[:200]!r})"
         ) from e
     if isinstance(data, list):
         return [str(x) for x in data]
@@ -42,6 +44,7 @@ def load_label_list(
 
 
 def meta_key_base(obj: object) -> str:
+    """Compute the base metadata key (e.g. ``meta_genre_``) from a LabelExtractor."""
     category = getattr(obj, "category", "other")
     name = getattr(obj, "name", "unknown")
     if category == "mood":
@@ -52,6 +55,11 @@ def meta_key_base(obj: object) -> str:
 
 
 def mean_pool_time(pred: Any) -> Any:
+    """Average predictions over time dimension(s).
+    
+    Handles 1-D (single frame), 2-D (time × features), and 3-D (frames × time × features) arrays.
+    Returns a 1-D array of pooled scores.
+    """
     import numpy as np
 
     x = np.asarray(pred, dtype=np.float64)
@@ -65,6 +73,10 @@ def mean_pool_time(pred: Any) -> Any:
 
 # not used
 def probs_from_raw(pooled: Any) -> Any:
+    """Softmax-normalise raw logits.
+    
+    Returns the input unchanged if values already appear to be probabilities.
+    """
     import numpy as np
 
     pooled = np.asarray(pooled, dtype=np.float64).ravel()
@@ -78,7 +90,14 @@ def probs_from_raw(pooled: Any) -> Any:
 
 
 def main_sub_from_label(label: str, separators: tuple[str, ...]) -> tuple[str, str]:
-    """Main segment (before first separator) and subgenre (last segment)."""
+    """Split a genre label into main and sub-genre segments.
+    
+    Uses the first separator found in ``label`` (e.g. ``"---"`` or ``"//"`").
+    Returns ``(main, sub)`` where *main* is the text before the separator
+    and *sub* is the text after it.  Returns ``(label, "")`` when no
+    separator is present.
+    """
+
     s = label.strip()
     if not s:
         return "", ""
@@ -93,7 +112,7 @@ def main_sub_from_label(label: str, separators: tuple[str, ...]) -> tuple[str, s
 
 
 def merge_values(existing: list | dict | str, new: list | dict | str) -> list | dict:
-    """Merge tow values"""
+    """Merge two values of compatible types (list, dict, or str)."""
     if isinstance(new, list):
         existing_list = [existing] if not isinstance(existing, list) else existing
         return list(set(existing_list + new))
@@ -114,15 +133,20 @@ def merge_values(existing: list | dict | str, new: list | dict | str) -> list | 
         raise TypeError(f"Type not managed : {type(new)}")
 
 
-def stringify(dictionary: Dict[str, Any]) -> Dict[str, str]:
-    out = {}
-    for item in dictionary:
-        out[f"{item}_str"] = dictionary[item] if type(dictionary[item]) is str else json.dumps(dictionary[item], ensure_ascii=False)
-    return(out)
+def stringify(dictionary: dict[str, Any]) -> dict[str, str]:
+    """Create ``*_str`` stringified copies of dict values.
+    
+    String values are kept as-is; lists and dicts are serialised with ``json.dumps``.
+    """
+    out: dict[str, str] = {}
+    for item, value in dictionary.items():
+        out[f"{item}_str"] = value if type(value) is str else json.dumps(value, ensure_ascii=False)
+    return out
 
 
 def pct(value: float | list[float]) -> int | list[int]:
-    return int(round(value * 100)) if type(value) == float else [int(round(n * 100)) for n in value]
+    """Convert a float (or list of floats) to percentage integers."""
+    return round(value * 100) if type(value) == float else [round(n * 100) for n in value]
 
 
 # Re-export for backwards compatibility

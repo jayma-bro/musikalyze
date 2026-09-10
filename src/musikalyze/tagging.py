@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 from mutagen import File as MutagenFile
 
@@ -130,7 +131,7 @@ def tags_to_tag_prefix(flat: Mapping[str, Any]) -> dict[str, Any]:
         key = k if str(k).startswith("tag_") else f"tag_{k}"
         m[key] = v
     for k in ["tracknumber", "discnumber"]:
-        if f"tag_{k}" in m.keys():
+        if f"tag_{k}" in m:
             m[f"tag_{k}_f"] = format_nbr(flat[k])
     return m
 

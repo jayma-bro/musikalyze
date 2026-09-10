@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import subprocess
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
+from musikalyze.audio_io import FFMPEG_TIMEOUT
 from musikalyze.templates import build_format_mapping, resolve_template, sanitize_relative_path
 
 _FORMAT_DEFAULTS: dict[str, dict[str, str]] = {
@@ -20,6 +22,7 @@ _FORMAT_DEFAULTS: dict[str, dict[str, str]] = {
 
 
 def _merge_options(fmt: str, user: Mapping[str, dict[str, str]]) -> dict[str, str]:
+    """Merge format-specific defaults with user-provided options."""
     base = dict(_FORMAT_DEFAULTS.get(fmt, {"acodec": "libopus", "audio_bitrate": "160k"}))
     base.update(user.get(fmt, {}))
     return base
@@ -39,7 +42,11 @@ def build_output_path(
     *,
     sanitize: bool = True,
 ) -> Path:
-    """Build a relative path from the template (includes ``{ext}``)."""
+    """Build a relative output path from the template, including the file extension.
+    
+    Resolves ``{tag_*}`` and ``{meta_*}`` placeholders in *path_template*, then
+    sanitises each path segment (removing characters like ``< > : " / \\ | ? *``).
+    """
 
     tag_pref = logical_tags_to_tag_prefix(resolved_tags)
     mapping = build_format_mapping(tag_pref, meta_map, ext=ext)
@@ -58,7 +65,12 @@ def export_audio(
     *,
     overwrite: bool = False,
 ) -> None:
-    """Transcode ``source`` to ``dest`` with ffmpeg."""
+    """Transcode *source* audio to *dest* using ffmpeg.
+    
+    Writes metadata tags and applies codec settings from *options*.
+    Raises :exc:`FileExistsError` if *dest* already exists and *overwrite* is ``False``.
+    Uses a timeout of :data:`~musikalyze.audio_io.FFMPEG_TIMEOUT` seconds.
+    """
 
     dest.parent.mkdir(parents=True, exist_ok=True)
     if dest.exists() and not overwrite:
@@ -81,10 +93,15 @@ def export_audio(
         cmd.extend(["-ar", "44100"])
     cmd.append(str(dest.resolve()))
 
-    subprocess.run(cmd, check=True, capture_output=True)
+    subprocess.run(cmd, check=True, capture_output=True, timeout=FFMPEG_TIMEOUT)
 
 
 def _ffmpeg_metadata_args(meta: Mapping[str, str]) -> dict[str, str]:
+    """Map logical tag keys to ffmpeg metadata keys.
+    
+    Known keys (``artist``, ``title``, ``album``, etc.) are translated to
+    their ffmpeg equivalents (e.g. ``tracknumber`` → ``track``).
+    """
     key_map = {
         "artist": "artist",
         "title": "title",
@@ -127,7 +144,11 @@ def export_multiple_formats(
     sanitize_paths: bool = True,
     overwrite: bool = False,
 ) -> list[Path]:
-    """Transcode ``source`` to one or more formats under ``output_root``."""
+    """Transcode *source* to one or more formats under *output_root*.
+    
+    Resolves the path template for each format, creates destination paths, and
+    calls :func:`export_audio` for each.  Returns a list of the created paths.
+    """
 
     fmts = [formats] if isinstance(formats, str) else list(formats)
     out_paths: list[Path] = []

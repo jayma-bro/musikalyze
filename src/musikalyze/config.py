@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import json
+import re
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, Literal, Mapping, Sequence, Union
-import json
+from typing import Any, Literal
 
 from musikalyze.analysis_ops import (
     main_sub_from_label,
@@ -46,7 +48,7 @@ class LabelExtractor:
     separator: str = ";"
     count: int = 1
     thold: float = 1.0
-    count_thold_policy: Literal["intersection", "union"] = "union"
+    count_thold_policy: Literal["intersection", "union"] = "intersection"
 
 @dataclass
 class PredictionRecord:
@@ -90,22 +92,22 @@ class PredictionRecord:
         out.update(self._stringify(out))
         return out
 
-    def _dict(self, labels: list[str], scores: Union[list[float], list[int]]) -> dict[str, Any]:
+    def _dict(self, labels: list[str], scores: list[float] | list[int]) -> dict[str, Any]:
         return {
             labels[i]: scores[i]
             for i in range(min(len(labels), len(scores)))
         }
 
-    def _stringify(self, dictionary: Dict[str, Any]) -> Dict[str, str]:
-        out = {}
-        for item in dictionary:
-            if type(dictionary[item]) is str:
-                out[f"{item}_str"] = dictionary[item]
-            elif type(dictionary[item]) is list:
-                out[f"{item}_str"] = self.sep.join([str(var) for var in dictionary[item]])
+    def _stringify(self, dictionary: dict[str, Any]) -> dict[str, str]:
+        out: dict[str, str] = {}
+        for item, value in dictionary.items():
+            if type(value) is str:
+                out[f"{item}_str"] = value
+            elif type(value) is list:
+                out[f"{item}_str"] = self.sep.join([str(var) for var in value])
             else:
-                json.dumps(dictionary[item], ensure_ascii=False)
-        return(out)
+                out[f"{item}_str"] = json.dumps(value, ensure_ascii=False)
+        return out
 
 
 @dataclass(slots=True)
@@ -134,6 +136,11 @@ class ExportConfig:
     format_options: dict[str, dict[str, str]] = field(default_factory=dict)
     sanitize_paths: bool = True
     overwrite: bool = False
+    _template_warning: bool = field(default=False, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        if not re.search(r"\{(tag_|meta_)", self.path_template):
+            object.__setattr__(self, "_template_warning", True)
 
 
 @dataclass(slots=True)
