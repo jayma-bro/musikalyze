@@ -1,213 +1,58 @@
-# musikalyze
+# Data Visualization Module
 
-**Analyse audio** (Essentia + TensorFlow → EffNet Discogs, MAEST, classifier heads), **lit les tags** (Mutagen), et **exporte en multi-formats** avec ffmpeg en utilisant des gabarits de chemins.
+This module provides visualization capabilities for audio analysis data from the musikalyze library. It supports both Plotly and Matplotlib backends with automatic fallback.
 
-Pre-trained **Essentia model weights** are licensed under **CC BY-NC-SA 4.0** (non-commercial). See [Essentia models](https://essentia.upf.edu/documentation/models.html).
+## Features
 
-Full **API and metadata key reference**: [METADATA.md](METADATA.md).
+- Distribution plots (histograms, box plots, violin plots)
+- Correlation matrices
+- Support for multiple visualization backends
+- Automatic fallback between Plotly and Matplotlib
+- Works with DataFrames from `MusicBatch.analyze()`
 
-## Requirements
+## Installation
 
-- Python 3.10+
-- `ffmpeg` on `PATH`
-- `essentia-tensorflow` (ML backend)
-
-## Install
+Install the required visualization libraries:
 
 ```bash
-pip install -e .
-pip install -e ".[dev]"  # optional: dev dependencies (pytest, ruff)
+pip install plotly matplotlib seaborn
 ```
 
-## Models
-
-Download `.pb` / `.json` from [Essentia models](https://essentia.upf.edu/documentation/models.html):
-
-- **Embedding models**: Discogs EffNet, MAEST (for feature extraction)
-- **Classifier heads**: Genre/mood classification/regression models (`.pb` + label lists in `.json`)
-
-For **MAEST embeddings**, the `EmbeddingModel` uses Essentia's `TensorflowPredictMAEST` with optional `patch_size`, `patch_hop_size`, and `batch_size`. Classifier heads use the generic `TensorflowPredict2D` API.
-
-> **Note**: `input_tensor` / `output_tensor` names vary per `.pb` file. Adjust them on each `LabelExtractor` and `EmbeddingModel` to match your graph.
-
-## Quick Start
+## Usage
 
 ```python
-from pathlib import Path
+import pandas as pd
+from src.musikalyze.visualizer import DataVisualizer
 
-from musikalyze import (
-    EmbeddingModel,
-    ExportConfig,
-    LabelExtractor,
-    MusicProcess,
-    TaggingConfig,
-)
+# Create or load a DataFrame from MusicBatch.analyze()
+df = pd.DataFrame(...)  # Your analysis results
 
-# Define embedding models (feature extractors)
-effnet = EmbeddingModel(
-    name="effnet",
-    embedding_model=Path("./models/discogs-effnet-bs64-1.pb"),
-)
-maest = EmbeddingModel(
-    name="maest",
-    embedding_model=Path("./models/discogs-maest-30s-pw-519l-2.pb"),
-)
+# Create visualizer with default plotly backend
+visualizer = DataVisualizer(backend='plotly')
+visualizer.set_data(df)
 
-# Define classifier heads on top of embeddings
-genre400 = LabelExtractor(
-    name="genre400",
-    embedder_name="effnet",
-    graph_path=Path("./models/genre_discogs400-discogs-effnet-1.pb"),
-    labels_path=Path("./models/genre_discogs400-discogs-effnet-1.json"),
-    category="genre",
-)
+# Create distribution plot
+fig = visualizer.plot_distribution('loudness', kind='histogram')
 
-mood_happy = LabelExtractor(
-    name="happy",
-    embedder_name="effnet",
-    graph_path=Path("./models/mood_happy-discogs-effnet-1.pb"),
-    labels_path=Path("./models/mood_happy-discogs-effnet-1.json"),
-    category="mood",
-)
+# Create correlation matrix
+fig = visualizer.plot_correlation_matrix()
 
-# Configure tagging templates and export settings
-music = MusicProcess(
-    audio_file=Path("./data/track.mp3"),
-    embedders=[effnet, maest],
-    extractors=[genre400, mood_happy],
-    tagging_config=TaggingConfig(
-        artist="{tag_artist}",
-        title="{tag_title}",
-        genre="{meta_genre_main}",
-    ),
-    export_config=ExportConfig(
-        output_root=Path("./output"),
-        formats="opus",
-        path_template="{tag_artist}/{tag_album}/{tag_track_number:02d} - {tag_title}.{ext}",
-        format_options={"opus": {"audio_bitrate": "160k"}},
-    ),
-)
-
-# Run the full pipeline
-music.process_file()
-# Or step by step: read_tags(), load_audio(), analyze_file(), tag_file(), export_file()
-
-# Access predictions programmatically
-labels = music.labels  # dict of all computed labels
-bpm = music.meta_bpm  # shortcut: same as music.label("meta_bpm")
+# Use matplotlib backend
+visualizer = DataVisualizer(backend='matplotlib')
+visualizer.set_data(df)
+fig = visualizer.plot_distribution('loudness')
 ```
 
-## Workflow
+## Methods
 
-`MusicProcess` provides both a full pipeline and step-by-step methods:
+### `plot_distribution(column, title=None, bins=30, kind="histogram")`
+Create a distribution plot for a specific column.
 
-| Method | Description |
-|---|---|
-| `process_file()` | Full pipeline: read tags → load audio → analyze → tag → export |
-| `read_tags()` | Read metadata from the source file (Mutagen) |
-| `load_audio()` | Decode to mono float32 at 16 kHz for Essentia analysis |
-| `analyze_file()` | Compute all registered embedding models (EffNet, MAEST) once |
-| `tag_file()` | Resolve `TaggingConfig` templates into resolved tag values |
-| `export_file()` | Transcode with ffmpeg and write metadata |
-| `labels` | Property — returns all computed labels as a `dict[str, Any]` |
-| `label(key)` | Programmatic access to a single key or a list of keys |
-| `preview_path(ext)` | Resolved output path without writing to disk |
-| `format_preview(template)` | Resolve an arbitrary template string with current tags + metadata |
-| `audio_mono` | Property — mono audio signal after `load_audio()` |
-| `tags_original` | Property — original tags read from the file |
-| `tags_resolved` | Property — resolved tags after `tag_file()` |
+### `plot_correlation_matrix(columns=None, title="Correlation Matrix")`
+Create a correlation matrix heatmap for specified columns.
 
-### Lazy Evaluation
+## Backend Support
 
-- **Embeddings** (`EffNet`, `MAEST`) are computed **once** via `analyze_file()` and cached.
-- **Classifier heads** and **classical descriptors** (`meta_bpm`, `meta_key`, etc.) run **lazily** — only when a template or `label()` needs them.
-- Calling `load_audio()` invalidates the embedding cache, so subsequent `analyze_file()` recomputes everything fresh.
-
-### Meta Access via Attributes
-
-Any attribute starting with `meta_` resolves automatically:
-
-```python
-music.meta_bpm      # → same as music.label("meta_bpm")
-music.meta_genre    # → top genre labels
-music.meta_mood_happy_val  # → confidence score for mood_happy
-```
-
-## Templates
-
-Templates use Python `str.format` syntax: `{tag_artist}`, `{meta_genre}`, `{tag_track_number:02d}`, etc.
-
-- `{tag_*}` values come from the source file's metadata tags.
-- `{meta_*}` values come from audio analysis (classical Essentia descriptors + ML model predictions).
-- Missing keys resolve to empty strings — no errors.
-
-### Export and Tags
-
-Unless you map a field in `TaggingConfig`, its value is **not recomputed**: export metadata starts from the original file tags and **overrides** only the logical keys produced by `tag_file()`.
-## Batch Processing
-
-`MusicBatch` unifies listing, analysis, and export over a whole directory:
-
-```python
-from pathlib import Path
-from musikalyze import MusicBatch
-
-batch = MusicBatch(
-    Path("./library"),
-    embedders=[effnet],
-    extractors=[genre400, mood_happy],
-    export_config=ExportConfig(
-        output_root=Path("./out"),
-        formats="opus",
-        path_template="{tag_artist}/{tag_album}/{tag_track_number:02d} - {tag_title}.{ext}",
-    ),
-    max_workers=4,  # optional: parallel files with ProcessPoolExecutor
-)
-
-batch.files                      # list[str] of audio paths (sorted)
-len(batch), batch.summary()      # count, extensions histogram, total size
-
-# Analysis → pandas DataFrame (one row per file)
-df = batch.analyze("genre400_all")   # dict values explode: one column per label
-df = batch.analyze("meta_bpm")       # scalar keys: single column
-df = batch.analyze("tag_artist")     # tag_* keys come from file tags
-
-# Export: transcode + write tags (progress bar, per-file errors logged & skipped)
-batch.export("./output")             # overrides export_config.output_root
-
-batch.preview_paths("opus")          # dry-run: destination paths, nothing written
-batch.sample(0.1)                    # new batch with a 10% random sample
-```
-
-Heavy methods (`analyze`, `export`, `preview_paths`) show a progress bar
-(`tqdm`; notebook-friendly). Each file is processed independently: a failure is
-logged as a warning and skipped, never aborting the batch. When
-`max_workers > 1`, files run in parallel worker processes. Use a
-`if __name__ == "__main__":` guard on platforms that require it (e.g., Windows).
-
-The low-level helpers remain available:
-
-```python
-from musikalyze import list_audio_files, sample_audio_files
-
-paths = sample_audio_files(Path("./library"), sample=0.1)  # 10% sample
-```
-
-## Error Classes
-
-| Exception | Meaning |
-|---|---|
-| `UnknownEmbedderError` | An extractor references an embedding name not in the `embedders` list |
-| `PredictionError` | TensorFlow / Essentia inference failure for a classifier head |
-| `UnknownMetaKeyError` | Requested metadata key is unavailable |
-
-## Embedding Models
-
-| `EmbeddingModel.name` | Essentia Algorithm | Notes |
-|---|---|---|
-| `"effnet"` | `TensorflowPredictEffnetDiscogs` | Discogs EffNet embedding model |
-| `"maest"` | `TensorflowPredictMAEST` | MAEST with optional `patch_size`, `patch_hop_size`, `batch_size` |
-
-## Supported Audio Formats
-
-Essentia handles: `.wav`, `.mp3`, `.flac`, `.aiff`, `.ogg`. Other formats (`.m4a`, `.aac`, `.wma`, etc.) are converted via ffmpeg on the fly.
+- **Plotly**: Default backend, provides interactive plots
+- **Matplotlib**: Fallback backend for static plots
+- **Automatic fallback**: If one backend is not available, the other will be used
