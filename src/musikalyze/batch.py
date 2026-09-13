@@ -535,3 +535,55 @@ class MusicBatch:
         if self.export_config is None:
             return ExportConfig(output_root=folder)
         return replace(self.export_config, output_root=folder)
+
+    def explode_metas(self, df: pd.DataFrame, column: str = "metas_all_pct") -> pd.DataFrame:
+        """Explode a DataFrame column containing nested meta dicts into flat columns.
+        
+        The ``metas_all_pct`` column from ``MusicBatch.analyze("analyze")`` contains
+        nested dictionaries. This method flattens them into individual columns.
+        
+        Example
+        -------
+        >>> df = batch.analyze("analyze")
+        >>> df = batch.explode_metas(df, "metas_all_pct")
+        >>> df.columns  # now includes 'meta_genre_dancehall', 'meta_mood_happy', etc.
+        """
+        if column not in df.columns:
+            logger.warning("Column %r not found in DataFrame; returning as-is", column)
+            return df
+        
+        df = df.copy()
+        metas_col = df[column]
+        
+        # Collect all keys across all rows
+        all_keys: set[str] = set()
+        for val in metas_col:
+            if isinstance(val, dict):
+                all_keys.update(val.keys())
+            elif isinstance(val, list):
+                for item in val:
+                    if isinstance(item, dict):
+                        all_keys.update(item.keys())
+        
+        # Create flat columns
+        for key in all_keys:
+            flat_values = []
+            for val in metas_col:
+                if isinstance(val, dict):
+                    flat_values.append(val.get(key))
+                elif isinstance(val, list):
+                    found = False
+                    for item in val:
+                        if isinstance(item, dict) and key in item:
+                            flat_values.append(item[key])
+                            found = True
+                            break
+                    if not found:
+                        flat_values.append(None)
+                else:
+                    flat_values.append(None)
+            df[key] = flat_values
+        
+        # Drop the original metas column
+        df = df.drop(columns=[column])
+        return df

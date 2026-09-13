@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from typing import Any
 
 _FORMAT_FIELDS = re.compile(r"\{([^{}:]+)(?::[^}]*)?\}")
+_FORMAT_WITH_SPEC = re.compile(r"\{([^{}:]+):(.+?)\}")
 
 
 def extract_placeholder_keys(*templates: str) -> set[str]:
@@ -51,15 +52,60 @@ def build_format_mapping(
     return out
 
 
-class _SafeFormat(dict[str, Any]):
-    def __missing__(self, key: str) -> str:
-        return ""
+def _non_empty_values(mapping: Mapping[str, Any]) -> dict[str, Any]:
+    """Return a copy with ``None``-values removed and empty strings replaced with ``""``."""
+    out: dict[str, Any] = {}
+    for k, v in mapping.items():
+        if v is None:
+            continue
+        if isinstance(v, list) and len(v) == 0:
+            continue
+        if isinstance(v, str) and v.strip() == "":
+            continue
+        out[k] = v
+    return out
 
 
-def resolve_template(template: str, mapping: Mapping[str, Any]) -> str:
-    """Apply ``str.format_map``; missing keys become empty strings."""
+def resolve_template(
+    template: str,
+    mapping: Mapping[str, Any],
+    *,
+    separator: str = ";",
+    join_meta: bool = True,
+) -> str:
+    """Apply ``str.format_map``; missing keys become empty strings.
 
-    safe = _SafeFormat((k, (v if v is not None else "")) for k, v in mapping.items())
+    If *join_meta* is ``True`` and the resolved value is a list, the list
+    elements are joined with *separator*.  Values that are ``None`` or empty
+    strings are silently omitted from templates so that consecutive separators
+    (e.g. ``"{a};{b};{c}"`` when *b* is empty) do not appear.
+    """
+
+    clean = _non_empty_values(mapping)
+
+    class _SafeFormat(dict[str, Any]):
+        def __missing__(self, key: str) -> str:
+            return ""
+
+        def __getitem__(self, key: str) -> Any:
+            val = super().__getitem__(key)
+            if val is None:
+                return ""
+            if join_meta and isinstance(val, list) and len(val) > 0:
+                parts = []
+                for item in val:
+                    s = str(item).strip() if item is not None else ""
+                    if s:
+                        parts.append(s)
+                if parts:
+                    return separator.join(parts)
+                return ""
+            # Return int/float as-is to support format specifiers like :02d
+            if isinstance(val, (int, float)):
+                return val
+            return str(val).strip() if val is not None else ""
+
+    safe = _SafeFormat((k, v) for k, v in clean.items())
     return template.format_map(safe)
 
 

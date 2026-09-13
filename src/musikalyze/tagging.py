@@ -11,6 +11,33 @@ from mutagen import File as MutagenFile
 from musikalyze.config import AnalysisResult, TaggingConfig
 from musikalyze.templates import build_format_mapping, resolve_template
 
+
+def _extract_main_genre(genre_string: str) -> str:
+    """Return the first-level category from a hyphen-separated genre string.
+    
+    e.g. "Reggae---Dub" -> "Reggae"
+    """
+    if not genre_string:
+        return genre_string
+    return genre_string.split("---")[0].split("-")[0].strip()
+
+
+def _deduplicate_genres(genres: list[str]) -> list[str]:
+    """Remove duplicate genres while preserving order.
+    
+    For genre strings like {"Reggae---Dub": 83, "Electronic---Dub": 80}:
+    - Extract main genres: ["Reggae", "Electronic"]
+    - Deduplicate and return
+    """
+    seen = set()
+    result = []
+    for g in genres:
+        main = _extract_main_genre(g) if "---" in g or "-" in g else g
+        if main and main not in seen:
+            seen.add(main)
+            result.append(main)
+    return result
+
 _LOGICAL_KEYS = (
     "artist",
     "title",
@@ -36,6 +63,17 @@ _LOGICAL_KEYS = (
     "bpm",
     "mood",
     "grouping",
+    "key",
+    "tcop",  # Track Commercial Orientation (MP3 tag)
+    "acousticness",
+    "danceability",
+    "energy",
+    "instrumentalness",
+    "liveness",
+    "popularity",
+    "speechiness",
+    "valence",
+    "tempo",
 )
 
 _REPLAYGAIN_TAGS = (
@@ -195,17 +233,52 @@ def apply_tagging_config(
     def one(template: str | None, key: str) -> None:
         if template is None:
             return
-        resolved[key] = resolve_template(template, base)
+        resolved[key] = resolve_template(template, base, separator=cfg.separator)
 
     one(cfg.artist, "artist")
     one(cfg.title, "title")
     one(cfg.album, "album")
     one(cfg.genre, "genre")
+    
+    # Apply genre deduplication
+    if "genre" in resolved and resolved["genre"]:
+        genre_val = resolved["genre"]
+        # Try to extract main genre and deduplicate
+        main_genre = _extract_main_genre(genre_val)
+        if main_genre:
+            resolved["genre"] = main_genre
+    else:
+        # Try to get genre from meta and deduplicate
+        genre_meta = meta.get("meta_genre") or meta.get("meta_mood_genre")
+        if genre_meta:
+            if isinstance(genre_meta, dict):
+                # It's a dict of {genre: score}
+                scores = sorted(genre_meta.items(), key=lambda x: x[1], reverse=True)
+                top_genres = [_extract_main_genre(g) for g, s in scores if s > 0]
+                deduped = _deduplicate_genres(top_genres)
+                if deduped:
+                    resolved["genre"] = cfg.separator.join(deduped)
+            elif isinstance(genre_meta, list):
+                genres = [_extract_main_genre(str(g)) for g in genre_meta if g]
+                deduped = _deduplicate_genres(genres)
+                if deduped:
+                    resolved["genre"] = cfg.separator.join(deduped)
+    
     one(cfg.composer, "composer")
     one(cfg.date, "date")
     one(cfg.tracknumber, "tracknumber")
     one(cfg.discnumber, "discnumber")
     one(cfg.comment, "comment")
+    
+    # Handle audio feature tags (e.g., acousticness, danceability, etc.)
+    for key in ["key", "tcop", "acousticness", "danceability", "energy", "instrumentalness", "liveness", "popularity", "speechiness", "valence", "tempo"]:
+        if key in meta:
+            # If we have a meta value, resolve it with template
+            template = cfg.extra.get(key) or f"{{meta_{key}}}"
+            if template:
+                resolved[key] = resolve_template(template, base, separator=cfg.separator)
+    
+    # Handle other extra tags
     for k, tmpl in cfg.extra.items():
         one(tmpl, k)
 

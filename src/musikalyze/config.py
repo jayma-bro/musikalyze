@@ -32,13 +32,22 @@ class EmbeddingModel:
 
 @dataclass(slots=True)
 class LabelExtractor:
-    """Classification / regression head on top of a named embedding."""
+    """Classification / regression head on top of a named embedding.
+
+    ``label_names`` can be either:
+
+    * ``Sequence[str]`` – classification / multilabel mode (one label per output neuron).
+    * ``dict[str, tuple[float, float]]`` – regression mode with **threshold mapping**.
+      Each value is ``(low, high)`` defining the score range for that label.
+      When a regression score falls within a range, the corresponding label is assigned.
+      On overlap the *lower* label wins; exact boundary values round to the lower label.
+    """
 
     name: str
     embedder_name: str
     graph_path: Path
     labels_path: Path | None = None
-    label_names: Sequence[str] | None = None
+    label_names: Sequence[str] | dict[str, tuple[int, int]] | None = None
     category: Literal["genre", "mood", "classical", "other"] = "other"
 
     input_tensor: str = "model/Placeholder"
@@ -122,8 +131,9 @@ class PredictionRecord:
 
 @dataclass(slots=True)
 class TaggingConfig:
-    """Per-field templates using `{tag_*}` and `{meta_*}` (Python ``str.format`` syntax only)."""
+    """Per-field templates using ``{tag_*}`` and ``{meta_*}`` (Python ``str.format`` syntax only)."""
 
+    separator: str = ";"
     artist: str | None = "{tag_artist}"
     title: str | None = "{tag_title}"
     album: str | None = "{tag_album}"
@@ -146,6 +156,7 @@ class ExportConfig:
     format_options: dict[str, dict[str, str]] = field(default_factory=dict)
     sanitize_paths: bool = True
     overwrite: bool = False
+    mode: Literal["transcode", "retag"] = "transcode"
     _template_warning: bool = field(default=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:

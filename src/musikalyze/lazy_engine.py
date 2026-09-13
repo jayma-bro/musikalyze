@@ -24,7 +24,7 @@ from musikalyze.exceptions import PredictionError, UnknownEmbedderError
 log = logging.getLogger(__name__)
 
 _CLASSICAL_KEYS = frozenset(
-    {"meta_bpm", "meta_key", "meta_scale", "meta_mood_danceability", "meta_rgain_gain", "meta_rgain_peak", "meta_rgain_peak_dbfs"}
+    {"meta_bpm", "meta_key", "meta_scale", "meta_rgain_gain", "meta_rgain_peak", "meta_rgain_peak_dbfs"}
 )
 class LazyMetaEngine:
     """Embeddings are computed once via ``compute_all_embeddings()``; heads and classical features are lazy."""
@@ -139,13 +139,17 @@ class LazyMetaEngine:
         embeddings = self.embedding(emb_mod.name)
         raw_labels: list[str] = []
         if ex.label_names is not None:
-            raw_labels = [str(x) for x in ex.label_names]
+            if isinstance(ex.label_names, dict):
+                # Regression threshold mapping: {label: (low, high)}
+                raw_labels = list(ex.label_names.keys())
+            else:
+                raw_labels = [str(x) for x in ex.label_names]
         elif ex.labels_path is not None:
             try:
                 raw_labels = load_label_list(Path(ex.labels_path), extractor_name=ex.name)
             except ValueError as e:
                 raise PredictionError(
-                    f'Extractor "{ex.name}" (embedder={ex.embedder_name}): {e}'
+                    f'Extractor "{ex.name}" (eexmbedder={ex.embedder_name}): {e}'
                 ) from e
 
         if ex.embedder_name == "maest":
@@ -167,7 +171,7 @@ class LazyMetaEngine:
                     output=ex.output_tensor,
                 )(embeddings)
             except Exception as e:
-                raise PredictionError(f'Head "{ex.name}" with {ex.embedder_name}: {e}') from e
+                raise PredictionError(f'Head "{ex.name}" with {ex.embedder_name}: {e}')
         else:
             raise UnknownEmbedderError(f"Extractor '{extractor_name}' references unknown embedder")
 
@@ -176,7 +180,29 @@ class LazyMetaEngine:
         scores = []
         top_label = []
         top_score = []
-        if ex.task == "regression" and pooled.size <= 2:
+
+        # Handle regression with threshold mapping (dict label_names)
+        if isinstance(ex.label_names, dict) and pooled.size > 0:
+            # Regression threshold mapping mode
+            score = round(pooled[0]*100, 2) if pooled.size > 0 else 0
+            thresholds: dict[str, tuple[int, int]] = ex.label_names
+
+            # Find the label with matching range
+            matching_labels = []
+
+            # Check each label to see if score fits in its range
+            for label_name, (low, high) in thresholds.items():
+                if low <= score <= high:
+                    matching_labels.append(label_name)
+
+            scores = top_score = [pooled[0]]
+            # Return empty list if no matches (to indicate no label assigned)
+            if matching_labels:
+                labels = top_label = [matching_labels[0]]  # Return first match
+            else:
+                # When no matching label, return empty list to indicate no label assigned
+                labels = top_label = []
+        elif ex.task == "regression" and pooled.size <= 2:
             scores = [float(pooled[0])]
             index = int(min(int((1.0 - scores[0]) * len(raw_labels)), len(raw_labels) - 1))
             labels=[raw_labels[index]]
@@ -246,14 +272,6 @@ class LazyMetaEngine:
                 "name": "scale",
                 "labels": scale,
             })
-        if key is None or key == "meta_mood_danceability":
-            from essentia.standard import Danceability
-
-            d, _ = Danceability()(self._audio)
-            pred_list.append({
-                "name": "danceability",
-                "labels": round(float(d), 2),
-            })
         if key is None or key in ["meta_rgain_gain", "meta_rgain_peak", "meta_rgain_peak_dbfs"]:
             from essentia.standard import LoudnessEBUR128
             if self._stereo_cache is None:
@@ -314,7 +332,7 @@ class LazyMetaEngine:
     def _build_flat_meta_one(self, key: str | None) -> dict[str, Any]:
         if key is None and self._flat_meta_cache is not None:
             return dict(self._flat_meta_cache)
-        
+
         out: dict[str, Any] = {}
         if key is None:
             self.compute_all_extractor()
@@ -390,7 +408,7 @@ class LazyMetaEngine:
                             full_dict[attribute][pred_key] = pct(pred_val) if "_pct" in attribute else pred_val
 
             out.update(full_dict)
-        
+
         if key is None:
             self._flat_meta_cache = dict(out)
         return out

@@ -26,6 +26,7 @@ from musikalyze.tagging import (
     merge_logical_tags_for_export,
     read_tags_raw,
     tags_to_tag_prefix,
+    write_tags_to_file_safe,
 )
 from musikalyze.templates import build_format_mapping, extract_placeholder_keys, resolve_template
 
@@ -226,6 +227,21 @@ class MusicProcess:
             overwrite=self.export_config.overwrite,
         )
 
+    def export_tags_only(self, output_path: Path | None = None) -> Path:
+        """Write tags to the original file (or output_path) without re-encoding.
+        
+        Preserves embedded artwork and other non-template tags.
+        Returns the path where tags were written.
+        """
+        if not self._tags_resolved:
+            self.tag_file()
+        if not self._embeddings_ready:
+            self.analyze_file()
+        
+        target = output_path or self.audio_path
+        write_tags_to_file_safe(target, self._tags_resolved)
+        return target
+
     def process_file(self) -> tuple[LazyMetaEngine | None, dict[str, str], list[Path] | None]:
         self.read_tags()
         self.load_audio()
@@ -328,4 +344,4 @@ class MusicProcess:
         meta = self._engine().build_flat_meta(keys)
         meta.update(file_meta_from_tags(self._tags_raw, keys))
         m = build_format_mapping(self._tags_prefixed, meta, ext=None)
-        return resolve_template(template, m)
+        return resolve_template(template, m, separator=self.tagging_config.separator)
