@@ -240,6 +240,15 @@ batch = MusicBatch("./library", embedders=[effnet], extractors=[genre])
 df = batch.analyze("analyze")
 ```
 
+`MusicBatch` utilise actuellement un seul worker pour préserver la stabilité
+d’Essentia/TensorFlow, aussi bien sur CPU que sur GPU. Les workers multiples
+sont temporairement désactivés : dans un notebook ou après l’initialisation de
+TensorFlow, le fork de modèles Essentia/TensorFlow peut rester bloqué ou faire
+planter le kernel. Le paramètre `max_workers` est conservé pour compatibilité,
+mais une valeur supérieure à un est ignorée avec un avertissement.
+
+La progression reste affichée par `tqdm` au fur et à mesure du traitement.
+
 `MusicBatch.analyze("analyze")` fournit notamment :
 
 - `filename`

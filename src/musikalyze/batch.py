@@ -398,7 +398,7 @@ class MusicBatch:
             if self._use_pool():
                 emb_d = [_serialize_embedding(e) for e in self.embedders]
                 ex_d = [_serialize_extractor(e) for e in self.extractors]
-                with ProcessPoolExecutor(max_workers=self.max_workers) as pool:
+                with ProcessPoolExecutor(max_workers=self._worker_count()) as pool:
                     futs = [
                         pool.submit(
                             _worker_analyze_one,
@@ -442,6 +442,7 @@ class MusicBatch:
         Failures are logged and skipped; see ``self._failures`` afterwards.
         """
         report_compute_device()
+        print(f"musikalyze: batch workers: {self._worker_count()}")
         if folder is None:
             folder = self.export_config.output_root if self.export_config else self.root / "output"
         folder = Path(folder)
@@ -458,7 +459,7 @@ class MusicBatch:
             td = asdict(self.tagging_config)
             ed = asdict(export_cfg)
             ed["output_root"] = str(export_cfg.output_root)
-            with ProcessPoolExecutor(max_workers=self.max_workers) as pool:
+            with ProcessPoolExecutor(max_workers=self._worker_count()) as pool:
                 futs = [
                     pool.submit(
                         _worker_process_one,
@@ -531,8 +532,26 @@ class MusicBatch:
 
     # -- internals ----------------------------------------------------------
 
+    def _worker_count(self) -> int:
+        """Return the stable batch worker count.
+
+        Essentia/TensorFlow models are not reliable when forked from a running
+        Python or notebook process. Batch execution is therefore deliberately
+        serial for now; ``max_workers`` is retained for configuration
+        compatibility and will emit a warning when a value above one is used.
+        """
+        if self.max_workers is not None and self.max_workers < 1:
+            raise ValueError("max_workers must be at least 1")
+        if self.max_workers is not None and self.max_workers > 1:
+            logger.warning(
+                "max_workers=%d is currently unsupported for Essentia/TensorFlow; "
+                "using one stable worker.",
+                self.max_workers,
+            )
+        return 1
+
     def _use_pool(self) -> bool:
-        return self.max_workers is not None and self.max_workers > 1
+        return self._worker_count() > 1
 
     def _make_process(self, audio_file: Path, export_config: ExportConfig | None = None) -> MusicProcess:
         kwargs: dict[str, Any] = {

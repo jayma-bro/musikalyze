@@ -1,11 +1,21 @@
 """musikalyze — Essentia-based audio analysis, tagging, and transcoding."""
 
+# Configure noisy native dependencies before any musikalyze module imports
+# Essentia/TensorFlow. ``setdefault`` keeps an explicit user override useful
+# for debugging.
+import os
+
+os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
+
+import essentia
+
+essentia.log.infoActive = False
+
 from musikalyze.batch import (
     MusicBatch,
     list_audio_files,
     sample_audio_files,
 )
-from musikalyze.visualizer import MusicEDA
 from musikalyze.config import (
     AnalysisResult,
     EmbeddingModel,
@@ -20,6 +30,7 @@ from musikalyze.exceptions import (
     UnknownMetaKeyError,
     musikalyzeError,
 )
+from musikalyze.visualizer import MusicEDA
 
 __all__ = [
     "AnalysisResult",

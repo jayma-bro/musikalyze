@@ -149,9 +149,9 @@ def test_not_a_directory(tmp_path):
         MusicBatch(tmp_path / "missing")
 
 
-def test_pool_flag(library):
+def test_batch_uses_stable_single_worker(library):
     assert MusicBatch(library)._use_pool() is False
-    assert MusicBatch(library, max_workers=4)._use_pool() is True
+    assert MusicBatch(library, max_workers=4)._use_pool() is False
 
 
 # ---------------------------------------------------------------------------

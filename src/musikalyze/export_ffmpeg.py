@@ -10,7 +10,8 @@ from typing import Any
 
 from mutagen import File as MutagenFile
 from mutagen.flac import Picture
-from mutagen.id3 import APIC
+from mutagen.id3 import APIC, ID3, POPM
+from mutagen.mp4 import MP4FreeForm
 
 from musikalyze.audio_io import FFMPEG_TIMEOUT
 from musikalyze.templates import (
@@ -135,7 +136,84 @@ def export_audio(
         stderr = error.stderr.decode(errors="replace") if error.stderr else ""
         raise RuntimeError(f"ffmpeg export failed for {dest}:\n{stderr}") from error
     _copy_artwork(source, dest)
+    _copy_rating(source, dest, metadata)
     _remove_redundant_codec_aliases(dest, fmt, metadata)
+
+
+def _rating_stars(value: Any) -> float | None:
+    """Parse the public rating representation, expressed as 0..5 stars."""
+    try:
+        stars = float(str(value).strip().lower().removesuffix(" stars"))
+    except (TypeError, ValueError):
+        return None
+    return min(5.0, max(0.0, stars))
+
+
+def _source_popm(source: Path) -> list[POPM]:
+    try:
+        audio = MutagenFile(source)
+        if audio is not None and isinstance(audio.tags, ID3):
+            return [frame for frame in audio.tags.getall("POPM") if isinstance(frame, POPM)]
+    except (OSError, KeyError, TypeError, ValueError):
+        pass
+    return []
+
+
+def _copy_rating(source: Path, destination: Path, metadata: Mapping[str, str]) -> None:
+    """Map MP3 POPM ratings to the target container's rating convention.
+
+    MP3 uses POPM's 0..255 byte scale. Vorbis-family containers use
+    ``RATING:<email>`` with a 0..1 value. For formats without an established
+    portable equivalent, a freeform ``rating`` value in stars is retained.
+    """
+    source_frames = _source_popm(source)
+    configured = _rating_stars(metadata.get("rating")) if "rating" in metadata else None
+    if not source_frames and configured is None:
+        return
+
+    stars = configured if configured is not None else source_frames[0].rating * 5.0 / 255.0
+    destination_format = destination.suffix.lower()
+    try:
+        target = MutagenFile(destination)
+        if target is None:
+            return
+        if destination_format == ".mp3":
+            tags = target.tags if isinstance(target.tags, ID3) else ID3()
+            if target.tags is None:
+                target.add_tags()
+                tags = target.tags
+            for frame in tags.getall("POPM"):
+                tags.delall(f"POPM:{frame.email}")
+            frames = source_frames or [POPM(email="user@email", rating=round(stars * 255 / 5), count=0)]
+            for frame in frames:
+                tags.add(POPM(email=frame.email, rating=round(stars * 255 / 5), count=frame.count))
+        elif destination_format in {".opus", ".ogg", ".flac"}:
+            tags = target.tags
+            if tags is None:
+                target.add_tags()
+                tags = target.tags
+            for key in list(tags.keys()):
+                if str(key).upper().startswith("RATING"):
+                    del tags[key]
+            frames = source_frames or [POPM(email="user@email", rating=0, count=0)]
+            for frame in frames:
+                email = frame.email or "user@email"
+                tags[f"RATING:{email}"] = [str(stars / 5.0)]
+        elif destination_format == ".m4a":
+            if target.tags is None:
+                target.add_tags()
+            target.tags["----:com.apple.iTunes:rating"] = [
+                MP4FreeForm(str(round(stars, 2)).encode("utf-8"))
+            ]
+        else:
+            # ASF and less common containers have no uniform Mutagen API. Keep
+            # a readable custom value rather than dropping the user's stars.
+            if target.tags is None:
+                target.add_tags()
+            target.tags["rating"] = [str(round(stars, 2))]
+        target.save()
+    except (OSError, KeyError, TypeError, ValueError):
+        return
 
 
 def _remove_redundant_codec_aliases(destination: Path, fmt: str, metadata: Mapping[str, str]) -> None:

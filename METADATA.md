@@ -422,6 +422,26 @@ d’éviter un ancien `TBPM` en doublon du tag canonique `bpm`. En revanche,
 `TRACKNUMBER` est le nom canonique Vorbis/Opus correspondant à `tracknumber` ;
 son affichage en majuscules est normal et nécessaire au conteneur.
 
+### Notes et étoiles
+
+La clé logique `rating` est exprimée en étoiles, de `0` à `5` :
+
+```python
+TaggingConfig(tags={"rating": "5"})
+```
+
+Les conversions appliquées sont :
+
+| Format | Représentation |
+|---|---|
+| MP3 | frame ID3 `POPM`, note `0..255` |
+| Opus/Ogg/FLAC | commentaire Vorbis `RATING:<email>`, valeur `0..1` |
+| M4A/WMA | tag textuel de compatibilité `rating`, valeur `0..5` |
+
+Lors d’un export MP3 vers un autre format, l’email du frame `POPM` et la note
+sont conservés autant que le conteneur cible le permet. Lors d’un export vers
+MP3, le score est reconverti vers l’échelle `POPM 0..255`.
+
 ## Analyse batch
 
 ```python

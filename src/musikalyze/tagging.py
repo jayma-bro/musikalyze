@@ -8,7 +8,8 @@ from pathlib import Path
 from typing import Any
 
 from mutagen import File as MutagenFile
-from mutagen.id3 import ID3, TXXX
+from mutagen.id3 import ID3, POPM, TXXX
+from mutagen.mp4 import MP4FreeForm
 
 from musikalyze._id3_tag_map import _ID3_TAG_MAP
 from musikalyze.config import AnalysisResult, TaggingConfig
@@ -28,7 +29,7 @@ _CORE_LOGICAL_KEYS = (
     "artist", "title", "album", "genre", "date", "tracknumber", "discnumber",
     "composer", "albumartist", "comment", "lyrics", "copyright", "publisher",
     "encodedby", "encoder", "isrc", "language", "albumsort", "artistsort",
-    "titlesort", "website", "bpm", "mood", "grouping", "key", "tcop",
+    "titlesort", "website", "bpm", "mood", "grouping", "key", "rating", "tcop",
 )
 _AUDIO_FEATURE_KEYS = (
     "acousticness", "danceability", "energy", "instrumentalness", "liveness",
@@ -48,7 +49,8 @@ def _detect_tag_keys(path: Path) -> tuple[str, ...]:
 
 def _get_tag_name(logical_key: str, tag_keys: Sequence[str]) -> str:
     """Return a usable codec tag name, ignoring Picard explanatory suffixes."""
-    entry = _ID3_TAG_MAP.get(logical_key) or _ID3_TAG_MAP.get("tcop" if logical_key == "copyright" else logical_key)
+    lookup_key = "_rating" if logical_key == "rating" else logical_key
+    entry = _ID3_TAG_MAP.get(logical_key) or _ID3_TAG_MAP.get(lookup_key) or _ID3_TAG_MAP.get("tcop" if logical_key == "copyright" else logical_key)
     if not entry:
         return logical_key
     for family in tag_keys:
@@ -98,6 +100,29 @@ def read_tags_raw(path: Path) -> dict[str, Any]:
                 out[raw.lower()] = value
         except (KeyError, TypeError, ValueError, AttributeError):
             continue
+
+    # POPM stores ratings as 0..255. Expose the public logical value as stars
+    # in the 0..5 range; the original email/counter are preserved during export.
+    if path.suffix.lower() == ".mp3" and isinstance(audio.tags, ID3):
+        popm_frames = audio.tags.getall("POPM")
+        if popm_frames:
+            out["rating"] = round(float(popm_frames[0].rating) * 5.0 / 255.0, 2)
+    elif path.suffix.lower() in {".opus", ".ogg", ".flac"}:
+        for key, value in audio.tags.items():
+            if str(key).upper().startswith("RATING"):
+                try:
+                    raw_rating = float(_norm_text(value) or "0")
+                    out["rating"] = round(raw_rating * 5.0 if raw_rating <= 1 else raw_rating, 2)
+                except ValueError:
+                    pass
+                break
+    elif path.suffix.lower() == ".m4a":
+        value = audio.tags.get("----:com.apple.iTunes:rating")
+        if value:
+            try:
+                out["rating"] = round(float(_norm_text(value) or "0"), 2)
+            except ValueError:
+                pass
     return out
 
 
@@ -194,6 +219,25 @@ def file_meta_from_tags(tags_logical: Mapping[str, Any], keys_needed: set[str]) 
 
 def _write_one(audio: Any, path: Path, logical: str, value: str) -> None:
     family = path.suffix.lower()
+    if logical == "rating":
+        try:
+            stars = min(5.0, max(0.0, float(value)))
+        except ValueError:
+            return
+        if family == ".mp3":
+            raw = ID3(path)
+            raw.delall("POPM")
+            raw.add(POPM(email="user@email", rating=round(stars * 255 / 5), count=0))
+            raw.save()
+        elif family in {".opus", ".ogg", ".flac"}:
+            audio.tags["RATING:user@email"] = [str(stars / 5.0)]
+        elif family == ".m4a":
+            audio.tags["----:com.apple.iTunes:rating"] = [
+                MP4FreeForm(str(round(stars, 2)).encode("utf-8"))
+            ]
+        else:
+            audio["rating"] = [str(stars)]
+        return
     if logical == "tcop":
         logical = "copyright"
     if family == ".mp3":
