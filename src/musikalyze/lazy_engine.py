@@ -65,7 +65,7 @@ class LazyMetaEngine:
         """Cleanup when object is garbage collected."""
         try:
             self.cleanup()
-        except Exception:
+        except Exception:  # noqa: BLE001, S110
             pass
 
     def _embedder_model(self, ex: LabelExtractor) -> EmbeddingModel:
@@ -166,14 +166,24 @@ class LazyMetaEngine:
             except Exception as e:
                 raise PredictionError(f'Head "{ex.name}" with {ex.embedder_name}: {e}') from e
         elif ex.embedder_name == "effnet":
-            try:
-                raw = TensorflowPredict2D(
-                    graphFilename=str(Path(ex.graph_path).resolve()),
-                    input=ex.input_tensor,
-                    output=ex.output_tensor,
-                )(embeddings)
-            except Exception as e:
-                raise PredictionError(f'Head "{ex.name}" with {ex.embedder_name}: {e}')
+            outputs = [ex.output_tensor]
+            if ex.task == "regression" and ex.output_tensor != "model/Identity":
+                outputs.append("model/Identity")
+            last_error: Exception | None = None
+            for output_tensor in outputs:
+                try:
+                    raw = TensorflowPredict2D(
+                        graphFilename=str(Path(ex.graph_path).resolve()),
+                        input=ex.input_tensor,
+                        output=output_tensor,
+                    )(embeddings)
+                    break
+                except Exception as error:  # noqa: BLE001
+                    last_error = error
+            else:
+                raise PredictionError(
+                    f'Head "{ex.name}" with {ex.embedder_name}: {last_error}'
+                ) from last_error
         else:
             raise UnknownEmbedderError(f"Extractor '{extractor_name}' references unknown embedder")
 
@@ -383,10 +393,7 @@ class LazyMetaEngine:
                     for pred in self._pred.values():
                         pred_key = None
                         pred_val = None
-                        if pred.category == "classical":
-                            full_dict[attribute][pred.name] = pred.labels[0]
-                            continue
-                        elif len(pred.top_label) == len(pred.top_score) == 1:
+                        if len(pred.top_label) == len(pred.top_score) == 1:
                             pred_key = pred.top_label[0] if "_label" in attribute else pred.name
                             pred_val = pred.top_score[0]
                         else:

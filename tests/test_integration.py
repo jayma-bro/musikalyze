@@ -86,7 +86,7 @@ _INSTRUMENT_EXTRACTOR = LabelExtractor(
     embedder_name="effnet",
     graph_path=_MODELS_DIR / "mtg_jamendo_instrument-discogs-effnet-1.pb",
     labels_path=_MODELS_DIR / "mtg_jamendo_instrument-discogs-effnet-1.json",
-    category="classical",
+    category="other",
     task="multilabel",
 )
 
@@ -324,7 +324,7 @@ class TestConfigJson:
     @classmethod
     def _build_from_json(cls, base_dir: Path):
         cfg = cls._load_config()
-        project_root = _FIXTURE_DIR.parent
+        project_root = _FIXTURE_DIR
         embedders = []
         for name, data in cfg.get("embedding_models", {}).items():
             embedders.append(
@@ -431,7 +431,7 @@ class TestConfigJson:
         categories = {e["category"] for e in extractors}
         assert "genre" in categories
         assert "mood" in categories
-        assert "classical" in categories
+        assert "other" in categories
 
     def test_config_exporter_tasks(self):
         cfg = self._load_config()

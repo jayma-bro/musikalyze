@@ -279,6 +279,42 @@ tags={
 }
 ```
 
+## Numéros de piste et de disque
+
+Les tags originaux peuvent contenir un numéro simple ou une valeur de type `numéro/total` :
+
+```text
+tracknumber = "02/12"
+discnumber = "1/2"
+```
+
+La fonction `format_nbr()` extrait le premier numéro et normalise son affichage pour les templates de chemin :
+
+```python
+from musikalyze.tagging import format_nbr
+
+format_nbr("02/12")  # "02"
+format_nbr("1/2")    # "01"
+format_nbr(3)         # "03"
+```
+
+Dans les mappings de templates, les variantes préparées sont disponibles sous :
+
+```text
+tag_tracknumber
+tag_tracknumber_f
+tag_discnumber
+tag_discnumber_f
+```
+
+La variante `_f` est utile lorsque l’on veut contrôler explicitement la valeur normalisée dans un nom de fichier. Le placeholder recommandé pour un format numérique reste :
+
+```text
+{tag_track_number:02d}
+```
+
+qui est calculé à partir de `tag_tracknumber`.
+
 ## Templates et séparateurs
 
 Le séparateur par défaut est `;` :

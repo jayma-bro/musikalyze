@@ -48,7 +48,7 @@ class LabelExtractor:
     graph_path: Path
     labels_path: Path | None = None
     label_names: Sequence[str] | dict[str, tuple[int, int]] | None = None
-    category: Literal["genre", "mood", "classical", "other"] = "other"
+    category: Literal["genre", "mood", "other"] = "other"
 
     input_tensor: str = "model/Placeholder"
     output_tensor: str = "model/Sigmoid"
@@ -75,7 +75,7 @@ class LabelExtractor:
 class PredictionRecord:
     """Information predicted by the extractor"""
     name: str
-    category: Literal["genre", "mood", "classical", "other"]
+    category: Literal["genre", "mood", "other"]
     labels: list[str]
     scores: list[float]
     top_label: list[str]
@@ -85,18 +85,6 @@ class PredictionRecord:
     @property
     def flat_meta_from_record(self) -> dict[str, Any]:
         base = meta_key_base(self)
-        if self.category == "classical":
-            out: dict[str, Any] = {
-                f"{base}_val": self.top_score,
-                f"{base}_val_pct": pct(self.top_score),
-                f"{base}_dict": self._dict(self.top_label, self.top_score),
-                f"{base}_dict_pct": self._dict(self.top_label, pct(self.top_score)),
-                f"{base}_all": self._dict(self.labels, self.scores),
-                f"{base}_all_pct": self._dict(self.labels, pct(self.scores)),
-                base: self.top_label
-            }
-            out.update(self._stringify(out))
-            return out
 
         out: dict[str, Any] = {
             f"{base}_val": self.top_score,

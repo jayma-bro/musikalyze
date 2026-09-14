@@ -345,7 +345,7 @@ class MusicBatch:
                     if "metas_all_pct" in labels:
                         row["metas_all_pct"] = labels["metas_all_pct"]
                     rows.append(row)
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001
                     logger.warning("Analysis failed for %s: %s", p, e)
                     rows.append({"filename": p.name, "filepath": str(p), "error": str(e)})
             return pd.DataFrame(rows)
@@ -367,7 +367,7 @@ class MusicBatch:
                         normalized = requested if requested.startswith(("tag_", "meta")) else f"meta_{requested}"
                         row[requested] = labels.get(normalized)
                     rows.append(row)
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001
                     logger.warning("Analysis failed for %s: %s", p, e)
                     row = {"_path": str(p)}
                     for requested in key:
@@ -456,21 +456,20 @@ class MusicBatch:
             for p in self.paths:
                 try:
                     self._make_process(p, export_config=export_cfg).process_file()
-                    if delete_after:
+                    if delete_after and p.exists():
                         # Delete the original file after successful export
-                        if p.exists():
-                            p.unlink()
-                            # Remove empty parent directories
-                            parent = p.parent
-                            while parent != self.root:
-                                try:
-                                    if parent.is_dir() and not any(parent.iterdir()):
-                                        parent.rmdir()
-                                        parent = parent.parent
-                                    else:
-                                        break
-                                except OSError:
+                        p.unlink()
+                        # Remove empty parent directories
+                        parent = p.parent
+                        while parent != self.root:
+                            try:
+                                if parent.is_dir() and not any(parent.iterdir()):
+                                    parent.rmdir()
+                                    parent = parent.parent
+                                else:
                                     break
+                            except OSError:
+                                break
                 except Exception as e:  # noqa: BLE001
                     logger.warning("Export failed for %s: %s", p, e)
                     failures.append((str(p), f"{type(e).__name__}: {e}"))
