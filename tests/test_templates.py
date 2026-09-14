@@ -2,6 +2,7 @@
 
 import unittest
 
+from musikalyze.export_ffmpeg import build_output_path
 from musikalyze.templates import (
     build_format_mapping,
     extract_placeholder_keys,
@@ -35,6 +36,24 @@ class TestTemplates(unittest.TestCase):
 
     def test_sanitize_prevents_relative_escape(self) -> None:
         self.assertEqual(sanitize_relative_path("../Artist/../../song?.opus"), "_/Artist/_/_/song_.opus")
+
+    def test_template_value_cannot_create_subdirectory(self) -> None:
+        output = build_output_path(
+            "{tag_title}.{ext}",
+            {"title": "music/test"},
+            {},
+            "opus",
+        )
+        self.assertEqual(output.as_posix(), "music_test.opus")
+
+    def test_template_separators_remain_explicit(self) -> None:
+        output = build_output_path(
+            "{tag_artist}/{tag_title}.{ext}",
+            {"artist": "Artist", "title": "music/test"},
+            {},
+            "opus",
+        )
+        self.assertEqual(output.as_posix(), "Artist/music_test.opus")
 
 
 if __name__ == "__main__":

@@ -387,6 +387,20 @@ batch.export(Path("temporary-output"))  # surcharge temporaire du dossier
 fichier source ; en cas d’échec, il est conservé. Les répertoires sources
 vides sont ensuite nettoyés par le batch.
 
+### BPM TempoCNN optionnel
+
+`meta_bpm` utilise `RhythmExtractor2013` par défaut. Un modèle Essentia
+TempoCNN peut être fourni à `MusicProcess` ou `MusicBatch` :
+
+```python
+MusicProcess(
+    audio_file=Path("song.mp3"),
+    tempo_model_path=Path("models/deeptemp-k16-3.pb"),
+)
+```
+
+Le même paramètre est disponible dans le JSON CLI sous `tempo_model_path`.
+
 ## Formats
 
 Les noms logiques sont traduits vers les noms du conteneur :
@@ -401,6 +415,12 @@ Les noms logiques sont traduits vers les noms du conteneur :
 | WMA | ASF |
 
 `copyright` est le nom logique recommandé. `TCOP` est le nom d’une frame ID3 correspondant au copyright, pas un champ métier distinct.
+
+Pour les tags issus d’un MP3, `TBPM` est l’alias ID3 brut de `bpm`. Lorsqu’un
+export vers Opus/FLAC réécrit le BPM, musikalyze supprime cet alias brut afin
+d’éviter un ancien `TBPM` en doublon du tag canonique `bpm`. En revanche,
+`TRACKNUMBER` est le nom canonique Vorbis/Opus correspondant à `tracknumber` ;
+son affichage en majuscules est normal et nécessaire au conteneur.
 
 ## Analyse batch
 

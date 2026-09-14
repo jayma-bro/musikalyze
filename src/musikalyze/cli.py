@@ -51,8 +51,10 @@ def load_config(path: Path) -> tuple[list[EmbeddingModel], list[LabelExtractor],
     else:
         export_data["output_root"] = base / "output"
     export_config = ExportConfig(**export_data)
+    tempo_model_path = data.get("tempo_model_path")
     return embedders, extractors, tagging, {
         "export_config": export_config,
+        "tempo_model_path": _path(tempo_model_path, base) if tempo_model_path else None,
         "recursive": data.get("recursive", True),
         "extensions": data.get("extensions"),
         "max_workers": data.get("max_workers"),
@@ -106,6 +108,7 @@ def main(argv: list[str] | None = None) -> int:
                 recursive=options["recursive"],
                 extensions=options["extensions"],
                 max_workers=options["max_workers"],
+                tempo_model_path=options["tempo_model_path"],
             )
             batch.export(output)
             return 1 if batch._failures else 0
@@ -116,6 +119,7 @@ def main(argv: list[str] | None = None) -> int:
             extractors=extractors,
             tagging_config=tagging,
             export_config=export_config,
+            tempo_model_path=options["tempo_model_path"],
         )
         process.process_file()
         return 0

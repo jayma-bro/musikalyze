@@ -15,6 +15,7 @@
     },
     "tagging_config": { "$ref": "#/$defs/taggingConfig" },
     "export_config": { "$ref": "#/$defs/exportConfig" },
+    "tempo_model_path": { "type": ["string", "null"], "description": "Optional Essentia TempoCNN .pb model used for meta_bpm." },
     "recursive": { "type": "boolean", "default": true },
     "extensions": { "type": "array", "items": { "type": "string" } },
     "max_workers": { "type": ["integer", "null"], "minimum": 1 }

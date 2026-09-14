@@ -29,6 +29,7 @@
       "energy": "{meta_mood_energy_val_pct}"
     }
   },
+  "tempo_model_path": null,
   "export_config": {
     "output_root": "output",
     "formats": "opus",

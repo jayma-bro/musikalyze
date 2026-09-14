@@ -37,6 +37,7 @@ class LazyMetaEngine:
         *,
         audio_path: Path,
         sep: str,
+        tempo_model_path: Path | None = None,
     ) -> None:
         self.sep: str = sep
         self._audio: Any = audio
@@ -46,6 +47,7 @@ class LazyMetaEngine:
         self._emb: dict[str, Any] = {}
         self._pred: dict[str, PredictionRecord] = {}
         self._audio_path: Path = audio_path
+        self._tempo_model_path = tempo_model_path
         self._flat_meta_cache: dict[str, Any] | None = None
         self._classical_meta: dict[str, Any] = {}
         self._stereo_cache: tuple[Any, int] | None = None
@@ -269,9 +271,28 @@ class LazyMetaEngine:
 
         pred_list = []
         if key is None or key.startswith("meta_bpm"):
-            from essentia.standard import RhythmExtractor2013
-            new_audio, _ = load_audio(str(self._audio_path.resolve()))
-            bpm, _beats, _beats_confidence, _, _beats_intervals = RhythmExtractor2013(method="multifeature")(new_audio)
+            if self._tempo_model_path is not None:
+                from essentia.standard import TempoCNN
+
+                # TempoCNN expects 11.025 kHz mono audio. Use the shared loader
+                # so containers unsupported by Essentia directly (notably Opus)
+                # are decoded through the ffmpeg fallback first.
+                tempo_audio, _ = load_audio(
+                    str(self._audio_path.resolve()),
+                    sample_rate=11025,
+                    resample_quality=4,
+                )
+                global_tempo, _local_tempo, _local_probabilities = TempoCNN(
+                    graphFilename=str(self._tempo_model_path.resolve())
+                )(tempo_audio)
+                bpm = float(global_tempo)
+            else:
+                from essentia.standard import RhythmExtractor2013
+
+                new_audio, _ = load_audio(str(self._audio_path.resolve()))
+                bpm, _beats, _beats_confidence, _, _beats_intervals = RhythmExtractor2013(
+                    method="multifeature"
+                )(new_audio)
             pred_list.append({
                 "name": "bpm",
                 "labels": round(float(bpm)),

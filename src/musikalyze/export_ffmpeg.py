@@ -17,7 +17,6 @@ from musikalyze.templates import (
     build_format_mapping,
     resolve_template,
     sanitize_path_segment,
-    sanitize_relative_path,
 )
 
 _FORMAT_DEFAULTS: dict[str, dict[str, str]] = {
@@ -67,10 +66,20 @@ def build_output_path(
     ext_name = str(ext).replace("\\", "/").rsplit("/", 1)[-1].lstrip(".")
     safe_ext = sanitize_path_segment(ext_name, max_len=16)
     mapping = build_format_mapping(tag_pref, meta_map, ext=safe_ext)
-    raw = resolve_template(path_template, mapping)
-    if sanitize:
-        raw = sanitize_relative_path(raw)
-    return Path(raw)
+    # Split the template before interpolation. This preserves separators that
+    # the user explicitly placed in the template, while preventing a value such
+    # as ``"music/test"`` from creating an unintended subdirectory.
+    template_parts = path_template.replace("\\", "/").split("/")
+    resolved_parts: list[str] = []
+    for part in template_parts:
+        resolved = resolve_template(part, mapping)
+        if sanitize:
+            resolved_parts.append(sanitize_path_segment(resolved))
+        else:
+            # Even with optional broad sanitation disabled, values must not
+            # escape their template component through path separators.
+            resolved_parts.append(resolved.replace("/", "_").replace("\\", "_"))
+    return Path("/".join(part for part in resolved_parts if part))
 
 
 def export_audio(
@@ -126,6 +135,29 @@ def export_audio(
         stderr = error.stderr.decode(errors="replace") if error.stderr else ""
         raise RuntimeError(f"ffmpeg export failed for {dest}:\n{stderr}") from error
     _copy_artwork(source, dest)
+    _remove_redundant_codec_aliases(dest, fmt, metadata)
+
+
+def _remove_redundant_codec_aliases(destination: Path, fmt: str, metadata: Mapping[str, str]) -> None:
+    """Remove raw ID3 aliases that ffmpeg may copy beside canonical Vorbis tags.
+
+    For example, an MP3 ``TBPM`` frame can survive metadata mapping as a literal
+    ``TBPM`` Vorbis comment while the canonical ``bpm`` comment is also written.
+    ``TBPM`` and ``bpm`` represent the same logical field, so keeping both would
+    expose stale values to tag readers. Other unknown tags remain untouched.
+    """
+    if fmt.lower() in {"mp3", "m4a"} or "bpm" not in metadata:
+        return
+    try:
+        audio = MutagenFile(destination)
+        if audio is None or audio.tags is None:
+            return
+        for alias in ("TBPM", "tbpm"):
+            if alias in audio.tags:
+                del audio.tags[alias]
+        audio.save()
+    except (OSError, KeyError, TypeError, ValueError):
+        return
 
 
 def _copy_artwork(source: Path, destination: Path) -> None:

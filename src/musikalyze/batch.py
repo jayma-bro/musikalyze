@@ -17,6 +17,7 @@ from tqdm.auto import tqdm
 
 from musikalyze.config import EmbeddingModel, ExportConfig, LabelExtractor, TaggingConfig
 from musikalyze.process import MusicProcess
+from musikalyze.runtime import report_compute_device
 
 logger = logging.getLogger(__name__)
 
@@ -120,6 +121,7 @@ def _worker_analyze_one(
     embedder_dicts: list[dict[str, Any]],
     extractor_dicts: list[dict[str, Any]],
     separator: str,
+    tempo_model_path: str | None = None,
 ) -> tuple[str, dict[str, Any] | None, str | None]:
     """Run a single file through the full analysis pipeline and return its labels dict."""
     try:
@@ -130,6 +132,7 @@ def _worker_analyze_one(
             embedders=embedders,
             extractors=extractors,
             separator=separator,
+            tempo_model_path=tempo_model_path,
         )
         return (audio_path, proc.labels, None)
     except Exception as e:  # noqa: BLE001
@@ -143,6 +146,7 @@ def _worker_process_one(
     tagging_dict: dict[str, Any],
     export_dict: dict[str, Any],
     separator: str,
+    tempo_model_path: str | None = None,
 ) -> tuple[str, bool, str | None]:
     """Run a single file through the full tag + export pipeline."""
     try:
@@ -159,6 +163,7 @@ def _worker_process_one(
             tagging_config=tc,
             export_config=ec,
             separator=separator,
+            tempo_model_path=tempo_model_path,
         )
         proc.process_file()
         return (audio_path, True, None)
@@ -236,6 +241,7 @@ class MusicBatch:
         recursive: bool = True,
         extensions: Iterable[str] | None = None,
         max_workers: int | None = None,
+        tempo_model_path: Path | str | None = None,
     ) -> None:
         self.root = Path(audio_path)
         if not self.root.is_dir():
@@ -248,6 +254,7 @@ class MusicBatch:
         self.recursive = recursive
         self._extensions = frozenset(extensions) if extensions is not None else None
         self.max_workers = max_workers
+        self.tempo_model_path = Path(tempo_model_path) if tempo_model_path is not None else None
         self._paths: list[Path] | None = None
         self._failures: list[tuple[str, str]] = []
         self._df_analyse: pd.DataFrame | None = None
@@ -287,6 +294,7 @@ class MusicBatch:
             recursive=self.recursive,
             extensions=self._extensions,
             max_workers=self.max_workers,
+            tempo_model_path=self.tempo_model_path,
         )
         clone._paths = sorted(sample_audio_files(self.root, sample=n_or_ratio, extensions=self._extensions))
         return clone
@@ -353,7 +361,7 @@ class MusicBatch:
             if not self.paths:
                 raise ValueError(f"No audio files found in {self.root}")
             # Build DataFrame with specified keys
-            rows = []
+            rows: list[dict[str, Any]] = []
             for p in tqdm(self.paths, desc=f"Analyzing ({len(key)} keys)", unit="file"):
                 try:
                     proc = self._make_process(p)
@@ -362,7 +370,7 @@ class MusicBatch:
                     if not proc._embeddings_ready:
                         proc.analyze_file()
                     labels = proc.labels
-                    row = {"_path": str(p)}
+                    row: dict[str, Any] = {"_path": str(p)}
                     for requested in key:
                         normalized = requested if requested.startswith(("tag_", "meta")) else f"meta_{requested}"
                         row[requested] = labels.get(normalized)
@@ -392,7 +400,14 @@ class MusicBatch:
                 ex_d = [_serialize_extractor(e) for e in self.extractors]
                 with ProcessPoolExecutor(max_workers=self.max_workers) as pool:
                     futs = [
-                        pool.submit(_worker_analyze_one, str(p), emb_d, ex_d, self.separator)
+                        pool.submit(
+                            _worker_analyze_one,
+                            str(p),
+                            emb_d,
+                            ex_d,
+                            self.separator,
+                            str(self.tempo_model_path) if self.tempo_model_path else None,
+                        )
                         for p in self.paths
                     ]
                     for fut in tqdm(as_completed(futs), total=len(futs), desc=f"Analyzing {norm_key}", unit="file"):
@@ -426,6 +441,7 @@ class MusicBatch:
         only after a successful export.
         Failures are logged and skipped; see ``self._failures`` afterwards.
         """
+        report_compute_device()
         if folder is None:
             folder = self.export_config.output_root if self.export_config else self.root / "output"
         folder = Path(folder)
@@ -444,7 +460,16 @@ class MusicBatch:
             ed["output_root"] = str(export_cfg.output_root)
             with ProcessPoolExecutor(max_workers=self.max_workers) as pool:
                 futs = [
-                    pool.submit(_worker_process_one, str(p), emb_d, ex_d, td, ed, self.separator)
+                    pool.submit(
+                        _worker_process_one,
+                        str(p),
+                        emb_d,
+                        ex_d,
+                        td,
+                        ed,
+                        self.separator,
+                        str(self.tempo_model_path) if self.tempo_model_path else None,
+                    )
                     for p in self.paths
                 ]
                 for fut in tqdm(as_completed(futs), total=len(futs), desc="Exporting", unit="file"):
@@ -510,14 +535,17 @@ class MusicBatch:
         return self.max_workers is not None and self.max_workers > 1
 
     def _make_process(self, audio_file: Path, export_config: ExportConfig | None = None) -> MusicProcess:
-        return MusicProcess(
-            audio_file=audio_file,
-            embedders=self.embedders,
-            extractors=self.extractors,
-            tagging_config=self.tagging_config,
-            export_config=export_config if export_config is not None else self.export_config,
-            separator=self.separator,
-        )
+        kwargs: dict[str, Any] = {
+            "audio_file": audio_file,
+            "embedders": self.embedders,
+            "extractors": self.extractors,
+            "tagging_config": self.tagging_config,
+            "export_config": export_config if export_config is not None else self.export_config,
+            "separator": self.separator,
+        }
+        if self.tempo_model_path is not None:
+            kwargs["tempo_model_path"] = self.tempo_model_path
+        return MusicProcess(**kwargs)
 
     def _effective_export_config(self, folder: Path) -> ExportConfig:
         if self.export_config is None:

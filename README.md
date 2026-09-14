@@ -24,8 +24,11 @@ L’analyse nécessite également les modèles Essentia/TensorFlow et `ffmpeg` p
 - `MusicBatch` traite récursivement un dossier.
 - `TaggingConfig` décrit les tags à remplacer explicitement.
 - `ExportConfig` décrit l’export, ou le retag sans réencodage.
+- `tempo_model_path` permet d’utiliser un modèle Essentia TempoCNN externe pour `meta_bpm`.
 
 Les scores internes des modèles sont des flottants `0..1`. Les seuils configurés par l’utilisateur sont toujours des pourcentages entiers `0..100`.
+
+Au début d’un export, musikalyze indique si l’inférence TensorFlow utilise le GPU ou le CPU.
 
 ## Exemple Python
 
@@ -141,6 +144,28 @@ musikalyze ./library --config ./config.json preview
 `export` est une sous-commande plutôt qu’un flag afin de permettre d’ajouter d’autres opérations sans ambiguïté. Le dossier passé après `export` est optionnel dans l’API Python, mais reste le chemin de sortie explicite de la commande CLI et surcharge `export_config.output_root`.
 
 La suppression des originaux ne se configure pas par un flag CLI : elle se fait dans le JSON avec `"delete_after": true`.
+
+### BPM avec un modèle TempoCNN externe
+
+Le BPM utilise `RhythmExtractor2013` par défaut. Pour utiliser un modèle Essentia
+TempoCNN, indiquez son fichier `.pb` dans la configuration :
+
+```json
+{
+  "tempo_model_path": "models/deeptemp-k16-3.pb"
+}
+```
+
+Le chemin est relatif au fichier JSON. Le modèle est chargé uniquement lors de
+la demande de `meta_bpm`.
+
+### Débit Opus
+
+`audio_bitrate: "256k"` est une cible moyenne pour l’encodeur Opus, pas une
+contrainte exacte. Le débit observé peut varier selon le contenu, les frames,
+les métadonnées et le conteneur. 256 kb/s est généralement considéré comme une
+très haute qualité pour Opus et dépasse les besoins usuels de la plupart des
+écoutes, même si cela reste un transcodage avec perte.
 
 Le schéma est disponible dans [`config.schema.json`](config.schema.json), et un exemple complet dans [`config.example.json`](config.example.json).
 

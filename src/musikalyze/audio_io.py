@@ -43,13 +43,15 @@ def load_audio(
             raise AudioLoadError(f"Failed to load {p.name} with Essentia") from e
     else:
         tmp_path = _load_via_ffmpeg(p)
-        audio, out_sample_rate = _load_audio(
-            path=tmp_path,
-            track=track,
-            sample_rate=sample_rate,
-            resample_quality=resample_quality,
-        )
-        tmp_path.unlink(missing_ok=True)
+        try:
+            audio, out_sample_rate = _load_audio(
+                path=tmp_path,
+                track=track,
+                sample_rate=sample_rate,
+                resample_quality=resample_quality,
+            )
+        finally:
+            tmp_path.unlink(missing_ok=True)
     return audio, out_sample_rate
 
 def _load_audio(

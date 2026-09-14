@@ -19,6 +19,7 @@ from musikalyze.config import (
 )
 from musikalyze.export_ffmpeg import export_multiple_formats
 from musikalyze.lazy_engine import LazyMetaEngine
+from musikalyze.runtime import report_compute_device
 from musikalyze.tagging import (
     apply_tagging_config,
     copy_and_write_tags,
@@ -67,11 +68,13 @@ class MusicProcess:
         tagging_config: TaggingConfig | None = None,
         export_config: ExportConfig | None = None,
         separator: str = ";",
+        tempo_model_path: Path | str | None = None,
     ) -> None:
         self.audio_path = Path(audio_file)
         self.tagging_config = tagging_config or TaggingConfig()
         self.export_config = export_config
         self.separator = separator
+        self.tempo_model_path = Path(tempo_model_path) if tempo_model_path is not None else None
 
         self._embedders = {e.name: e for e in embedders}
         self._extractors = {e.name: e for e in extractors}
@@ -120,7 +123,8 @@ class MusicProcess:
                 self._embedders,
                 self._extractors,
                 audio_path=self.audio_path,
-                sep=self.separator
+                sep=self.separator,
+                tempo_model_path=self.tempo_model_path,
             )
         return self._lazy_engine
 
@@ -206,6 +210,7 @@ class MusicProcess:
         return self._tags_resolved
 
     def export_file(self) -> list[Path]:
+        report_compute_device()
         if self.export_config is None:
             raise ValueError("export_config is required for export_file()")
         if not self._tags_resolved:
