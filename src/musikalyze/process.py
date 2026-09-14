@@ -225,18 +225,27 @@ class MusicProcess:
                 self.audio_path.suffix.lstrip("."),
                 sanitize=self.export_config.sanitize_paths,
             )
-            return [self.export_tags_only(destination)]
-        return export_multiple_formats(
-            self.audio_path,
-            self.export_config.output_root,
-            self.export_config.path_template,
-            self.export_config.formats,
-            merged,
-            meta,
-            self.export_config.format_options,
-            sanitize_paths=self.export_config.sanitize_paths,
-            overwrite=self.export_config.overwrite,
-        )
+            paths = [self.export_tags_only(destination)]
+        else:
+            paths = export_multiple_formats(
+                self.audio_path,
+                self.export_config.output_root,
+                self.export_config.path_template,
+                self.export_config.formats,
+                merged,
+                meta,
+                self.export_config.format_options,
+                sanitize_paths=self.export_config.sanitize_paths,
+                overwrite=self.export_config.overwrite,
+            )
+
+        if self.export_config.delete_after:
+            source = self.audio_path.resolve()
+            # Never remove the source when retagging in place. For an exported
+            # copy, deletion happens only after the writer returned successfully.
+            if all(path.resolve() != source for path in paths) and self.audio_path.exists():
+                self.audio_path.unlink()
+        return paths
 
     def export_tags_only(self, output_path: Path | None = None) -> Path:
         """Write tags to the original file (or output_path) without re-encoding.

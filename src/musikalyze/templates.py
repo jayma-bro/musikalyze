@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections.abc import Mapping
 from typing import Any
 
@@ -109,17 +110,38 @@ def resolve_template(
     return template.format_map(safe)
 
 
+_WINDOWS_RESERVED_NAMES = {
+    "CON", "PRN", "AUX", "NUL",
+    *(f"COM{number}" for number in range(1, 10)),
+    *(f"LPT{number}" for number in range(1, 10)),
+}
+
+
 def sanitize_path_segment(segment: str, max_len: int = 200) -> str:
+    """Make one filename or directory component portable and safe.
+
+    The result is valid on POSIX and Windows, cannot be ``.``/``..`` or a
+    Windows device name, and never contains control characters or trailing
+    spaces/dots. Unicode letters are preserved.
+    """
     bad = '<>:"/\\|?*'
-    s = segment.strip()
-    for c in bad:
-        s = s.replace(c, "_")
-    s = s.replace("\x00", "")
-    if len(s) > max_len:
-        s = s[: max_len - 3] + "..."
-    return s or "_"
+    text = unicodedata.normalize("NFKC", str(segment))
+    text = "".join("_" if ord(char) < 32 or ord(char) == 127 else char for char in text)
+    for char in bad:
+        text = text.replace(char, "_")
+    text = text.strip().rstrip(" .")
+    if not text or text in {".", ".."}:
+        return "_"
+    stem = text.split(".", 1)[0].upper()
+    if stem in _WINDOWS_RESERVED_NAMES:
+        text = f"_{text}"
+    if len(text) > max_len:
+        text = text[: max_len - 3].rstrip(" .") + "..."
+    return text or "_"
 
 
 def sanitize_relative_path(path_str: str) -> str:
-    parts = path_str.replace("\\", "/").split("/")
-    return "/".join(sanitize_path_segment(p) for p in parts if p)
+    """Sanitize every component and force a relative, portable path."""
+    parts = str(path_str).replace("\\", "/").split("/")
+    safe_parts = [sanitize_path_segment(part) for part in parts if part]
+    return "/".join(safe_parts) or "_"

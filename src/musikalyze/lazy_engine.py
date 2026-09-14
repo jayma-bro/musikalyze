@@ -82,7 +82,7 @@ class LazyMetaEngine:
 
         for name in self._embedders:
             if name not in self._emb:
-                self._emb[name] = self.compute_embedding(name)
+                self.compute_embedding(name)
 
     def compute_embedding(self, embedder_name: str) -> None:
         """Run a signe embedding model define by the name"""
@@ -256,7 +256,7 @@ class LazyMetaEngine:
                 scores=[round(n, 2) for n in scores],
                 top_label=top_label,
                 top_score=[round(n, 2) for n in top_score],
-                sep=ex.separator,
+                sep=self.sep,
             )
 
     def _ensure_classical_key(self, key: str | None) -> dict[str, Any]:
@@ -452,11 +452,11 @@ class LazyMetaEngine:
                     parts = label.split("---", 1)
                     if len(parts) > 1 and parts[1].strip() not in subs:
                         subs.append(parts[1].strip())
-                out["meta_genres_main"] = main
-                out["meta_genres_sub"] = self.sep.join(subs)
+                out["meta_genres_main"] = [main]
+                out["meta_genres_sub"] = subs
                 # Singular aliases are kept as the convenient template names.
-                out["meta_genre_main"] = main
-                out["meta_genre_sub"] = self.sep.join(subs)
+                out["meta_genre_main"] = [main]
+                out["meta_genre_sub"] = subs
         out.update(self._stringify(out))
         return out
 

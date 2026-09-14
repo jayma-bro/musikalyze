@@ -221,7 +221,7 @@ class MusicBatch:
     >>> batch = MusicBatch("./library", embedders=[effnet], extractors=[genre400])
     >>> batch.files                      # list[str] of audio paths
     >>> df = batch.analyze("genre400_all")  # rows = files, columns = labels
-    >>> batch.export("./out")            # transcode + tags, with progress bar
+    >>> batch.export()                    # use ExportConfig.output_root
     """
 
     def __init__(
@@ -417,16 +417,17 @@ class MusicBatch:
             self._key_analyse = key
             return df.sort_values("_path", kind="stable").reset_index(drop=True)
 
-    def export(self, folder: Path | str, delete_after: bool = False) -> None:
-        """Run the full pipeline (tags → analyze → tag templates → ffmpeg export) on every file.
+    def export(self, folder: Path | str | None = None) -> None:
+        """Export every file using :class:`ExportConfig`.
 
-        ``folder`` becomes the export output root, overriding
-        ``export_config.output_root``. If no ``export_config`` was given, a
-        default one (``formats="opus"``, default path template) is used.
-        If ``delete_after`` is True, deletes the original file after successful
-        export (and removes empty parent directories).
+        When ``folder`` is supplied it temporarily overrides
+        ``ExportConfig.output_root`` for this call. The ``delete_after`` policy
+        always comes from ``ExportConfig`` and is applied by ``MusicProcess``
+        only after a successful export.
         Failures are logged and skipped; see ``self._failures`` afterwards.
         """
+        if folder is None:
+            folder = self.export_config.output_root if self.export_config else self.root / "output"
         folder = Path(folder)
         folder.mkdir(parents=True, exist_ok=True)
         if not self.paths:
@@ -456,20 +457,7 @@ class MusicBatch:
             for p in self.paths:
                 try:
                     self._make_process(p, export_config=export_cfg).process_file()
-                    if delete_after and p.exists():
-                        # Delete the original file after successful export
-                        p.unlink()
-                        # Remove empty parent directories
-                        parent = p.parent
-                        while parent != self.root:
-                            try:
-                                if parent.is_dir() and not any(parent.iterdir()):
-                                    parent.rmdir()
-                                    parent = parent.parent
-                                else:
-                                    break
-                            except OSError:
-                                break
+                    self._remove_empty_parents(p)
                 except Exception as e:  # noqa: BLE001
                     logger.warning("Export failed for %s: %s", p, e)
                     failures.append((str(p), f"{type(e).__name__}: {e}"))
@@ -477,6 +465,9 @@ class MusicBatch:
                 bar.set_postfix(failed=len(failures))
             bar.close()
 
+        if export_cfg.delete_after:
+            for p in self.paths:
+                self._remove_empty_parents(p)
         self._failures = failures
         if failures:
             logger.warning("%d/%d exports failed", len(failures), len(self.paths))
@@ -532,6 +523,19 @@ class MusicBatch:
         if self.export_config is None:
             return ExportConfig(output_root=folder)
         return replace(self.export_config, output_root=folder)
+
+    def _remove_empty_parents(self, path: Path) -> None:
+        """Remove empty source subdirectories, without removing the batch root."""
+        parent = path.parent
+        while parent != self.root and parent.is_relative_to(self.root):
+            try:
+                if parent.is_dir() and not any(parent.iterdir()):
+                    parent.rmdir()
+                    parent = parent.parent
+                else:
+                    break
+            except OSError:
+                break
 
     def explode_metas(self, df: pd.DataFrame, column: str = "metas_all_pct") -> pd.DataFrame:
         """Explode a DataFrame column containing nested meta dicts into flat columns.

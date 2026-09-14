@@ -1,0 +1,94 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/jayma-bro/musikalyze/config.schema.json",
+  "title": "musikalyze configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "embedding_models": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/embeddingModel" }
+    },
+    "label_extractors": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/labelExtractor" }
+    },
+    "tagging_config": { "$ref": "#/$defs/taggingConfig" },
+    "export_config": { "$ref": "#/$defs/exportConfig" },
+    "recursive": { "type": "boolean", "default": true },
+    "extensions": { "type": "array", "items": { "type": "string" } },
+    "max_workers": { "type": ["integer", "null"], "minimum": 1 }
+  },
+  "$defs": {
+    "embeddingModel": {
+      "type": "object",
+      "required": ["embedding_model"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "enum": ["effnet", "maest"] },
+        "embedding_model": { "type": "string" },
+        "input_tensor": { "type": ["string", "null"] },
+        "patch_size": { "type": ["integer", "null"] },
+        "patch_hop_size": { "type": ["integer", "null"] },
+        "batch_size": { "type": ["integer", "null"] }
+      }
+    },
+    "labelExtractor": {
+      "type": "object",
+      "required": ["name", "embedder_name", "graph_path"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "embedder_name": { "type": "string" },
+        "graph_path": { "type": "string" },
+        "labels_path": { "type": ["string", "null"] },
+        "label_names": {
+          "oneOf": [
+            { "type": "array", "items": { "type": "string" } },
+            {
+              "type": "object",
+              "additionalProperties": {
+                "type": "array",
+                "prefixItems": [{ "type": "integer", "minimum": 0, "maximum": 100 }, { "type": "integer", "minimum": 0, "maximum": 100 }],
+                "minItems": 2,
+                "maxItems": 2
+              }
+            }
+          ]
+        },
+        "category": { "enum": ["genre", "mood", "other"] },
+        "input_tensor": { "type": "string" },
+        "output_tensor": { "type": "string" },
+        "task": { "enum": ["classification", "regression", "multilabel"] },
+        "count": { "type": "integer", "minimum": 1 },
+        "thold": { "type": "integer", "minimum": 0, "maximum": 100 },
+        "count_thold_policy": { "enum": ["intersection", "union"] }
+      }
+    },
+    "taggingConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "tags": { "type": "object", "additionalProperties": { "type": ["string", "null"] } },
+        "separator": { "type": "string" },
+        "extra": { "type": "object", "additionalProperties": { "type": ["string", "null"] } }
+      }
+    },
+    "exportConfig": {
+      "type": "object",
+      "required": ["output_root"],
+      "additionalProperties": false,
+      "properties": {
+        "output_root": { "type": "string" },
+        "formats": { "oneOf": [{ "type": "string" }, { "type": "array", "items": { "type": "string" } }] },
+        "path_template": { "type": "string" },
+        "format_options": { "type": "object", "additionalProperties": { "type": "object", "additionalProperties": { "type": "string" } } },
+        "sanitize_paths": { "type": "boolean" },
+        "overwrite": { "type": "boolean" },
+        "retag": { "type": "boolean" },
+        "delete_after": { "type": "boolean", "default": false },
+        "mode": { "enum": ["transcode", "retag", null] }
+      }
+    }
+  }
+}

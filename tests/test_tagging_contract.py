@@ -2,7 +2,16 @@
 
 from pathlib import Path
 
-from musikalyze.config import AnalysisResult, ExportConfig, LabelExtractor, TaggingConfig
+import numpy as np
+
+from musikalyze.analysis_ops import pct
+from musikalyze.config import (
+    AnalysisResult,
+    ExportConfig,
+    LabelExtractor,
+    PredictionRecord,
+    TaggingConfig,
+)
 from musikalyze.tagging import apply_tagging_config
 
 
@@ -41,6 +50,22 @@ def test_percentage_configuration_is_integer_based():
         task="multilabel",
     )
     assert extractor.thold == 70
+
+
+def test_numpy_scores_and_label_lists_are_normalized():
+    assert pct(np.float64(0.443)) == 44
+    record = PredictionRecord(
+        name="genre400",
+        category="genre",
+        labels=["Reggae---Dub", "Electronic---Dub"],
+        scores=[0.83, 0.80],
+        top_label=["Reggae---Dub", "Electronic---Dub"],
+        top_score=[0.83, 0.80],
+        sep=";",
+    )
+    meta = record.flat_meta_from_record
+    assert meta["meta_genre_genre400_main"] == ["Reggae"]
+    assert meta["meta_genre_genre400_sub"] == ["Dub"]
 
 
 def test_retag_is_the_export_switch():

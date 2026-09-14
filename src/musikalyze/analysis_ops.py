@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from numbers import Real
 from pathlib import Path
 from typing import Any
 
@@ -111,8 +112,14 @@ def main_sub_from_label(label: str, separators: tuple[str, ...]) -> tuple[str, s
     return s, ""
 
 
-def merge_values(existing: list | dict | str, new: list | dict | str) -> list | dict:
-    """Merge two values of compatible types (list, dict, or str)."""
+def merge_values(existing: list | dict | str | float, new: list | dict | str | float) -> list | dict:
+    """Merge grouped metadata values while preserving insertion order."""
+    if isinstance(new, (int, float)):
+        if isinstance(existing, list):
+            return existing + [new]
+        if isinstance(existing, (int, float)):
+            return [existing, new]
+        return [existing, new]
     if isinstance(new, list):
         existing_list = [existing] if not isinstance(existing, list) else existing
         return list(set(existing_list + new))
@@ -144,9 +151,11 @@ def stringify(dictionary: dict[str, Any]) -> dict[str, str]:
     return out
 
 
-def pct(value: float | list[float]) -> int | list[int]:
-    """Convert a float (or list of floats) to percentage integers."""
-    return round(value * 100) if type(value) == float else [round(n * 100) for n in value]
+def pct(value: Any) -> int | list[int]:
+    """Convert scalar or sequence scores to integer percentages."""
+    if isinstance(value, Real):
+        return round(float(value) * 100)
+    return [round(float(number) * 100) for number in value]
 
 
 # Re-export for backwards compatibility

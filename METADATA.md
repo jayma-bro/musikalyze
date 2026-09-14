@@ -362,6 +362,7 @@ ExportConfig(
 ExportConfig(
     output_root=Path("retagged"),
     retag=True,
+    delete_after=False,
 )
 ```
 
@@ -373,6 +374,18 @@ Dans ce mode :
 - `formats` et `format_options` sont ignorés ;
 - l’artwork est conservé par la copie du fichier ;
 - les tags non configurés restent présents.
+
+### Export batch
+
+```python
+batch.export()                    # ExportConfig.output_root
+batch.export(Path("temporary-output"))  # surcharge temporaire du dossier
+```
+
+`delete_after=True` se configure dans `ExportConfig`, jamais comme argument de
+`MusicBatch.export()`. Après un export réussi, `MusicProcess` supprime le
+fichier source ; en cas d’échec, il est conservé. Les répertoires sources
+vides sont ensuite nettoyés par le batch.
 
 ## Formats
 

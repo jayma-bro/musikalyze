@@ -2,13 +2,23 @@
 
 from __future__ import annotations
 
+import base64
 import subprocess
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from mutagen import File as MutagenFile
+from mutagen.flac import Picture
+from mutagen.id3 import APIC
+
 from musikalyze.audio_io import FFMPEG_TIMEOUT
-from musikalyze.templates import build_format_mapping, resolve_template, sanitize_relative_path
+from musikalyze.templates import (
+    build_format_mapping,
+    resolve_template,
+    sanitize_path_segment,
+    sanitize_relative_path,
+)
 
 _FORMAT_DEFAULTS: dict[str, dict[str, str]] = {
     "opus": {"acodec": "libopus", "audio_bitrate": "160k"},
@@ -29,9 +39,14 @@ def _merge_options(fmt: str, user: Mapping[str, dict[str, str]]) -> dict[str, st
 
 
 def logical_tags_to_tag_prefix(resolved: Mapping[str, str]) -> dict[str, Any]:
-    """Map logical ``artist`` → ``tag_artist`` for path templates."""
+    """Map logical tags to template variables, including formatted track numbers."""
 
-    return {f"tag_{k}": v for k, v in resolved.items() if v is not None}
+    out = {f"tag_{k}": v for k, v in resolved.items() if v is not None}
+    for key in ("tracknumber", "discnumber"):
+        if key in resolved:
+            text = str(resolved[key]).split("/", 1)[0].lstrip("0") or "0"
+            out[f"tag_{key}_f"] = text if len(text) > 1 else f"0{text}"
+    return out
 
 
 def build_output_path(
@@ -49,7 +64,9 @@ def build_output_path(
     """
 
     tag_pref = logical_tags_to_tag_prefix(resolved_tags)
-    mapping = build_format_mapping(tag_pref, meta_map, ext=ext)
+    ext_name = str(ext).replace("\\", "/").rsplit("/", 1)[-1].lstrip(".")
+    safe_ext = sanitize_path_segment(ext_name, max_len=16)
+    mapping = build_format_mapping(tag_pref, meta_map, ext=safe_ext)
     raw = resolve_template(path_template, mapping)
     if sanitize:
         raw = sanitize_relative_path(raw)
@@ -82,19 +99,77 @@ def export_audio(
         cmd.append("-y")
     else:
         cmd.append("-n")
-    cmd.extend(["-i", str(source.resolve()), "-map", "0", "-map_metadata", "0"])
+    cmd.extend(["-i", str(source.resolve())])
+    # Opus/Ogg/FLAC store artwork as metadata, not as a copied video stream.
+    # MP3 and MP4 can keep an attached picture stream during transcoding.
+    if fmt.lower() in {"mp3", "m4a"}:
+        cmd.extend(["-map", "0", "-map_metadata", "0"])
+    else:
+        cmd.extend(["-map", "0:a:0", "-map_metadata", "0"])
     for k, v in _ffmpeg_metadata_args(metadata).items():
         cmd.extend(["-metadata", f"{k}={v}"])
     acodec = opts.get("acodec", "libopus")
-    # Keep attached pictures when the target container supports them.
-    cmd.extend(["-c:v", "copy", "-c:a", acodec])
+    if fmt.lower() in {"mp3", "m4a"}:
+        cmd.extend(["-c:v", "copy"])
+    else:
+        cmd.append("-vn")
+    cmd.extend(["-c:a", acodec])
     if "audio_bitrate" in opts:
         cmd.extend(["-b:a", opts["audio_bitrate"]])
     if fmt.lower() == "wav":
         cmd.extend(["-ar", "44100"])
     cmd.append(str(dest.resolve()))
 
-    subprocess.run(cmd, check=True, capture_output=True, timeout=FFMPEG_TIMEOUT)
+    try:
+        subprocess.run(cmd, check=True, capture_output=True, timeout=FFMPEG_TIMEOUT)
+    except subprocess.CalledProcessError as error:
+        stderr = error.stderr.decode(errors="replace") if error.stderr else ""
+        raise RuntimeError(f"ffmpeg export failed for {dest}:\n{stderr}") from error
+    _copy_artwork(source, dest)
+
+
+def _copy_artwork(source: Path, destination: Path) -> None:
+    """Copy embedded artwork through the target container's metadata system."""
+    try:
+        source_file = MutagenFile(source)
+        destination_file = MutagenFile(destination)
+        if source_file is None or destination_file is None or source_file.tags is None:
+            return
+
+        source_tags = source_file.tags
+        destination_tags = destination_file.tags
+        if destination_tags is None:
+            destination_file.add_tags()
+            destination_tags = destination_file.tags
+
+        apic_frames = [frame for frame in source_tags.values() if isinstance(frame, APIC)]
+        if apic_frames and hasattr(destination_tags, "add"):
+            for frame in apic_frames:
+                destination_tags.add(frame)
+        elif apic_frames and destination_tags is not None:
+            frame = apic_frames[0]
+            picture = Picture()
+            picture.type = 3
+            picture.mime = frame.mime
+            picture.desc = frame.desc or "Cover (front)"
+            picture.data = frame.data
+            encoded = base64.b64encode(picture.write()).decode("ascii")
+            destination_tags["metadata_block_picture"] = [encoded]
+        elif "covr" in source_tags and "covr" in destination_tags:
+            destination_tags["covr"] = source_tags["covr"]
+        elif "covr" in source_tags and hasattr(destination_file, "__setitem__"):
+            destination_file["covr"] = source_tags["covr"]
+        elif hasattr(source_file, "pictures") and source_file.pictures:
+            picture = source_file.pictures[0]
+            if hasattr(destination_file, "add_picture"):
+                destination_file.add_picture(picture)
+            elif destination_tags is not None:
+                encoded = base64.b64encode(picture.write()).decode("ascii")
+                destination_tags["metadata_block_picture"] = [encoded]
+        destination_file.save()
+    except (OSError, KeyError, TypeError, ValueError):
+        # Artwork support varies by container; audio export must still succeed.
+        return
 
 
 def _ffmpeg_metadata_args(meta: Mapping[str, str]) -> dict[str, str]:

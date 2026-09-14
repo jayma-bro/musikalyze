@@ -27,6 +27,15 @@ class TestTemplates(unittest.TestCase):
         m = build_format_mapping({"tracknumber": "3"}, {}, ext=None)
         self.assertEqual(m["tag_track_number"], 3)
 
+    def test_sanitize_portable_names(self) -> None:
+        self.assertEqual(sanitize_path_segment("CON"), "_CON")
+        self.assertEqual(sanitize_path_segment(".."), "_")
+        self.assertEqual(sanitize_path_segment("folder. "), "folder")
+        self.assertNotIn("\n", sanitize_path_segment("bad\nname"))
+
+    def test_sanitize_prevents_relative_escape(self) -> None:
+        self.assertEqual(sanitize_relative_path("../Artist/../../song?.opus"), "_/Artist/_/_/song_.opus")
+
 
 if __name__ == "__main__":
     unittest.main()

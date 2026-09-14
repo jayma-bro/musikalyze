@@ -82,6 +82,20 @@ process = MusicProcess(
 process.process_file()
 ```
 
+Pour un dossier, `MusicBatch.export()` utilise directement `ExportConfig` :
+
+```python
+from musikalyze import MusicBatch
+
+batch = MusicBatch("./library", embedders=[effnet], extractors=[genre], export_config=process.export_config)
+batch.export()                    # utilise output_root
+batch.export(Path("./temporary-output"))  # surcharge output_root pour cet appel
+```
+
+`ExportConfig(delete_after=True)` supprime le fichier source uniquement après
+la réussite de son export. Cette option fonctionne de la même manière pour
+`MusicProcess` et `MusicBatch`.
+
 ## Retag sans réencodage
 
 Pour copier le fichier original et modifier uniquement ses tags :
@@ -124,7 +138,11 @@ musikalyze ./library --config ./config.json analyze --output analysis.json
 musikalyze ./library --config ./config.json preview
 ```
 
-`export` est une sous-commande plutôt qu’un flag afin de permettre d’ajouter d’autres opérations sans ambiguïté.
+`export` est une sous-commande plutôt qu’un flag afin de permettre d’ajouter d’autres opérations sans ambiguïté. Le dossier passé après `export` est optionnel dans l’API Python, mais reste le chemin de sortie explicite de la commande CLI et surcharge `export_config.output_root`.
+
+La suppression des originaux ne se configure pas par un flag CLI : elle se fait dans le JSON avec `"delete_after": true`.
+
+Le schéma est disponible dans [`config.schema.json`](config.schema.json), et un exemple complet dans [`config.example.json`](config.example.json).
 
 ### Configuration JSON
 
@@ -230,8 +248,16 @@ pip install -e '.[viz]'
 
 ## Tests
 
+Tests rapides :
+
 ```bash
-pytest -q
+pytest -q -m 'not integration'
 ```
 
-Les tests d’intégration qui utilisent des modèles réels peuvent être beaucoup plus longs que les tests unitaires.
+Tests d’intégration avec les vrais fichiers audio et modèles :
+
+```bash
+pytest -q -m integration
+```
+
+Les tests d’intégration peuvent prendre plusieurs minutes car ils exécutent Essentia/TensorFlow sur les fichiers de `tests/fixtures`.

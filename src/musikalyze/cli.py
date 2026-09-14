@@ -72,7 +72,7 @@ def _make_parser() -> argparse.ArgumentParser:
 
     export = sub.add_parser("export", help="Analyse, tag and export audio")
     export.add_argument("output", type=Path, help="Destination directory")
-    export.add_argument("--delete-after", action="store_true", help="Delete source files after successful export")
+
 
     analyze = sub.add_parser("analyze", help="Analyse audio and write a JSON result")
     analyze.add_argument("--key", default="analyze", help="Metadata key or 'analyze'")
@@ -107,7 +107,7 @@ def main(argv: list[str] | None = None) -> int:
                 extensions=options["extensions"],
                 max_workers=options["max_workers"],
             )
-            batch.export(output, delete_after=args.delete_after)
+            batch.export(output)
             return 1 if batch._failures else 0
         export_config = _export_config(configured_export, output)
         process = MusicProcess(

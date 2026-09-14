@@ -1,0 +1,47 @@
+{
+  "embedding_models": {
+    "effnet": {
+      "embedding_model": "models/discogs-effnet-bs64-1.pb",
+      "name": "effnet"
+    }
+  },
+  "label_extractors": [
+    {
+      "name": "genre400",
+      "embedder_name": "effnet",
+      "graph_path": "models/genre_discogs400-discogs-effnet-1.pb",
+      "labels_path": "models/genre_discogs400-discogs-effnet-1.json",
+      "category": "genre",
+      "task": "multilabel",
+      "count": 3,
+      "thold": 70,
+      "count_thold_policy": "union"
+    }
+  ],
+  "tagging_config": {
+    "separator": ";",
+    "tags": {
+      "genre": "{meta_genres}",
+      "key": "{meta_key}",
+      "copyright": "{meta_genres_main};{meta_scale}"
+    },
+    "extra": {
+      "energy": "{meta_mood_energy_val_pct}"
+    }
+  },
+  "export_config": {
+    "output_root": "output",
+    "formats": "opus",
+    "path_template": "{tag_artist}/{tag_album}/{tag_track_number:02d} - {tag_title}.{ext}",
+    "format_options": {
+      "opus": { "audio_bitrate": "256k" }
+    },
+    "sanitize_paths": true,
+    "overwrite": false,
+    "retag": false,
+    "delete_after": false
+  },
+  "recursive": true,
+  "extensions": ["mp3", "flac", "ogg", "opus", "m4a", "wav"],
+  "max_workers": 1
+}

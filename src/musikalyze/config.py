@@ -54,7 +54,6 @@ class LabelExtractor:
     output_tensor: str = "model/Sigmoid"
     task: Literal["classification", "regression", "multilabel"] = "classification"
 
-    separator: str = ";"
     count: int = 1
     # Public thresholds are percentages, from 0 to 100.
     thold: int = 100
@@ -86,9 +85,11 @@ class PredictionRecord:
     def flat_meta_from_record(self) -> dict[str, Any]:
         base = meta_key_base(self)
 
+        single_score = self.top_score[0] if len(self.top_score) == 1 else self.top_score
+        single_score_pct = pct(single_score) if len(self.top_score) == 1 else pct(self.top_score)
         out: dict[str, Any] = {
-            f"{base}_val": self.top_score,
-            f"{base}_val_pct": pct(self.top_score),
+            f"{base}_val": single_score,
+            f"{base}_val_pct": single_score_pct,
             f"{base}_dict": self._dict(self.top_label, self.top_score),
             f"{base}_dict_pct": self._dict(self.top_label, pct(self.top_score)),
             f"{base}_all": self._dict(self.labels, self.scores),
@@ -99,19 +100,19 @@ class PredictionRecord:
         if self.category == "genre":
             mains: list[str] = []
             subs: list[str] = []
-            for lab in self.top_label:
+            for index, lab in enumerate(self.top_label):
                 m, s = main_sub_from_label(lab, ("---", "//"))
-                if m and m not in mains:
+                if index == 0 and m:
                     mains.append(m)
                 if s and s not in subs:
                     subs.append(s)
-            out[f"{base}_main"] = self.sep.join(mains)
-            out[f"{base}_sub"] = self.sep.join(subs)
+            out[f"{base}_main"] = mains
+            out[f"{base}_sub"] = subs
             out[base] = mains + subs
         out.update(self._stringify(out))
         return out
 
-    def _dict(self, labels: list[str], scores: list[float] | list[int]) -> dict[str, Any]:
+    def _dict(self, labels: list[str], scores: Any) -> dict[str, Any]:
         return {
             labels[i]: scores[i]
             for i in range(min(len(labels), len(scores)))
@@ -155,6 +156,7 @@ class ExportConfig:
     sanitize_paths: bool = True
     overwrite: bool = False
     retag: bool = False
+    delete_after: bool = False
     # Deprecated spelling retained only to load existing serialized configs.
     mode: Literal["transcode", "retag"] | None = field(default=None, repr=False)
     _template_warning: bool = field(default=False, repr=False, compare=False)
