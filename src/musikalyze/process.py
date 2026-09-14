@@ -228,7 +228,6 @@ class MusicProcess:
                 merged,
                 meta,
                 self.audio_path.suffix.lstrip("."),
-                sanitize=self.export_config.sanitize_paths,
             )
             paths = [self.export_tags_only(destination)]
         else:
@@ -240,7 +239,6 @@ class MusicProcess:
                 merged,
                 meta,
                 self.export_config.format_options,
-                sanitize_paths=self.export_config.sanitize_paths,
                 overwrite=self.export_config.overwrite,
             )
 
@@ -300,7 +298,6 @@ class MusicProcess:
             merge_logical_tags_for_export(self._tags_raw, self._tags_resolved),
             meta,
             ext,
-            sanitize=self.export_config.sanitize_paths,
         )
 
     def analyze(self, key: str | list[str] | None = None) -> dict[str, Any] | pd.DataFrame:

@@ -57,7 +57,6 @@ def load_config(path: Path) -> tuple[list[EmbeddingModel], list[LabelExtractor],
         "tempo_model_path": _path(tempo_model_path, base) if tempo_model_path else None,
         "recursive": data.get("recursive", True),
         "extensions": data.get("extensions"),
-        "max_workers": data.get("max_workers"),
     }
 
 
@@ -107,7 +106,6 @@ def main(argv: list[str] | None = None) -> int:
                 export_config=configured_export,
                 recursive=options["recursive"],
                 extensions=options["extensions"],
-                max_workers=options["max_workers"],
                 tempo_model_path=options["tempo_model_path"],
             )
             batch.export(output)

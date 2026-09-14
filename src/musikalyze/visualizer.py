@@ -230,7 +230,7 @@ class MusicEDA:
                     bin_w = (vals.max() - vals.min()) / bins
                     fig.add_trace(go.Scatter(
                         x=xs, y=ys * len(vals) * bin_w, mode="lines",
-                        name=f"{g} KDE", line=dict(color=colors[i % len(colors)]),
+                        name=f"{g} KDE", line={"color": colors[i % len(colors)]},
                     ))
         else:
             vals = series.dropna().values
@@ -239,7 +239,7 @@ class MusicEDA:
                 bin_w = (vals.max() - vals.min()) / bins
                 fig.add_trace(go.Scatter(
                     x=xs, y=ys * len(vals) * bin_w, mode="lines",
-                    name="KDE", line=dict(color="black", width=2),
+                    name="KDE", line={"color": "black", "width": 2},
                 ))
 
         rng = self._col_axis_range(col)
@@ -364,7 +364,7 @@ class MusicEDA:
             fig.add_trace(go.Scatter(
                 x=xline, y=slope * xline + intercept, mode="lines",
                 name=f"Trend (R²={r2:.3f})",
-                line=dict(color="red", dash="dash", width=2),
+                line={"color": "red", "dash": "dash", "width": 2},
             ))
 
         if force_0_100:
@@ -427,8 +427,8 @@ class MusicEDA:
                             x=self.df.loc[mask, cx], y=self.df.loc[mask, cy],
                             mode="markers", name=str(g), legendgroup=str(g),
                             showlegend=show_legend,
-                            marker=dict(size=4, opacity=0.6,
-                                        color=palette[k % len(palette)]),
+                            marker={"size": 4, "opacity": 0.6,
+                                        "color": palette[k % len(palette)]},
                             text=ids, hovertemplate="%{text}<extra></extra>",
                         ), row=row, col=colpos)
 
@@ -439,7 +439,7 @@ class MusicEDA:
                         text=f"r={r:.2f}", xref=f"x{colpos + i*n} domain",
                         yref=f"y{row + j*n - n + n} domain",
                         x=0.05, y=0.95, showarrow=False,
-                        font=dict(size=11, color="black"),
+                        font={"size": 11, "color": "black"},
                         bgcolor="rgba(255,255,255,0.7)",
                         row=row, col=colpos,
                     )
@@ -450,7 +450,7 @@ class MusicEDA:
                         fig.add_trace(go.Scatter(
                             x=xline, y=slope * xline + intercept,
                             mode="lines", showlegend=False,
-                            line=dict(color="red", dash="dash", width=1.5),
+                            line={"color": "red", "dash": "dash", "width": 1.5},
                             hoverinfo="skip",
                         ), row=row, col=colpos)
 
@@ -524,11 +524,11 @@ class MusicEDA:
         for name, qvals, color, dash in lines:
             fig.add_trace(go.Scatter(
                 x=keep, y=[qvals[t] for t in keep], mode="lines+markers",
-                name=name, line=dict(color=color, dash=dash),
+                name=name, line={"color": color, "dash": dash},
             ))
         fig.add_trace(go.Scatter(
             x=keep, y=distinct[skip_low:], mode="lines+markers",
-            name="Distinct genres", line=dict(color="black", width=2),
+            name="Distinct genres", line={"color": "black", "width": 2},
             yaxis="y2" if dual_axis else "y",
         ))
 
@@ -540,10 +540,10 @@ class MusicEDA:
             yaxis_rangemode="tozero",
         )
         if dual_axis:
-            layout["yaxis2"] = dict(
-                title="Distinct genres", overlaying="y", side="right",
-                rangemode="tozero",
-            )
+            layout["yaxis2"] = {
+                "title": "Distinct genres", "overlaying": "y", "side": "right",
+                "rangemode": "tozero",
+            }
         fig.update_layout(**layout)
         return fig
 
@@ -663,7 +663,7 @@ class MusicEDA:
             ]:
                 fig.add_trace(go.Scatter(
                     x=gf.columns, y=qvals, mode="lines",
-                    name=name, line=dict(dash=dash),
+                    name=name, line={"dash": dash},
                 ))
         else:
             if sample_indices is not None:
@@ -733,7 +733,7 @@ class MusicEDA:
 
         fig = px.imshow(
             co, x=top.tolist(), y=top.tolist(),
-            labels=dict(color="Co-occurrences"),
+            labels={"color": "Co-occurrences"},
             color_continuous_scale="Viridis", aspect="auto",
         )
         fig.update_layout(**self._base_layout(
@@ -806,7 +806,7 @@ class MusicEDA:
             ))
         fig.update_layout(
             **self._base_layout("Radar \u2014 score features", height),
-            polar=dict(radialaxis=dict(range=[0, 100])),
+            polar={"radialaxis": {"range": [0, 100]}},
         )
         return fig
 

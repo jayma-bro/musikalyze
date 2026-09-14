@@ -37,12 +37,11 @@
     "format_options": {
       "opus": { "audio_bitrate": "256k" }
     },
-    "sanitize_paths": true,
+
     "overwrite": false,
     "retag": false,
     "delete_after": false
   },
   "recursive": true,
-  "extensions": ["mp3", "flac", "ogg", "opus", "m4a", "wav"],
-  "max_workers": 1
+  "extensions": ["mp3", "flac", "ogg", "opus", "m4a", "wav"]
 }

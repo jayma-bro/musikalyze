@@ -153,7 +153,7 @@ class ExportConfig:
     formats: str | list[str] = "opus"
     path_template: str = "{tag_artist}/{tag_album}/{tag_track_number:02d} - {tag_title}.{ext}"
     format_options: dict[str, dict[str, str]] = field(default_factory=dict)
-    sanitize_paths: bool = True
+
     overwrite: bool = False
     retag: bool = False
     delete_after: bool = False

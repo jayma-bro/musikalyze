@@ -50,7 +50,7 @@ __all__ = [
     "sample_audio_files",
 ]
 
-__version__ = "0.6.0"
+__version__ = "1.0.0"
 
 
 def __getattr__(name: str):

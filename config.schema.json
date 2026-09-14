@@ -17,8 +17,7 @@
     "export_config": { "$ref": "#/$defs/exportConfig" },
     "tempo_model_path": { "type": ["string", "null"], "description": "Optional Essentia TempoCNN .pb model used for meta_bpm." },
     "recursive": { "type": "boolean", "default": true },
-    "extensions": { "type": "array", "items": { "type": "string" } },
-    "max_workers": { "type": ["integer", "null"], "minimum": 1 }
+    "extensions": { "type": "array", "items": { "type": "string" } }
   },
   "$defs": {
     "embeddingModel": {
@@ -84,7 +83,7 @@
         "formats": { "oneOf": [{ "type": "string" }, { "type": "array", "items": { "type": "string" } }] },
         "path_template": { "type": "string" },
         "format_options": { "type": "object", "additionalProperties": { "type": "object", "additionalProperties": { "type": "string" } } },
-        "sanitize_paths": { "type": "boolean" },
+
         "overwrite": { "type": "boolean" },
         "retag": { "type": "boolean" },
         "delete_after": { "type": "boolean", "default": false },

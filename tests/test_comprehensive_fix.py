@@ -1,20 +1,22 @@
-#!/usr/bin/env python3
+
 """
 Comprehensive test for the LabelExtractor regression fix.
 This replicates the exact scenario from the user's issue.
 """
 
 import os
+
 os.environ["CUDA_VISIBLE_DEVICES"] = ""
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"  # 0=all, 1=info off, 2=warnings off, 3=errors only
 import essentia
+
 essentia.log.infoActive = False
-import musikalyze as msklz
 from pathlib import Path
-import numpy as np
+
 from musikalyze import (
     LabelExtractor,
 )
+
 
 def test_label_extractor_regression_with_dict():
     """Test that LabelExtractor handles dict label_names correctly for regression tasks."""
@@ -22,7 +24,7 @@ def test_label_extractor_regression_with_dict():
     print("Testing LabelExtractor regression with dict label_names...")
     
     # Create a LabelExtractor with the exact configuration from the user's example
-    engagement = LabelExtractor(
+    _engagement = LabelExtractor(
         name="engagement",
         embedder_name="effnet",
         graph_path=Path("./models/engagement_regression-discogs-effnet-1.pb"),

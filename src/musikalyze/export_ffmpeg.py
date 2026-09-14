@@ -54,8 +54,6 @@ def build_output_path(
     resolved_tags: Mapping[str, str],
     meta_map: Mapping[str, Any],
     ext: str,
-    *,
-    sanitize: bool = True,
 ) -> Path:
     """Build a relative output path from the template, including the file extension.
     
@@ -74,12 +72,7 @@ def build_output_path(
     resolved_parts: list[str] = []
     for part in template_parts:
         resolved = resolve_template(part, mapping)
-        if sanitize:
-            resolved_parts.append(sanitize_path_segment(resolved))
-        else:
-            # Even with optional broad sanitation disabled, values must not
-            # escape their template component through path separators.
-            resolved_parts.append(resolved.replace("/", "_").replace("\\", "_"))
+        resolved_parts.append(sanitize_path_segment(resolved))
     return Path("/".join(part for part in resolved_parts if part))
 
 
@@ -337,7 +330,6 @@ def export_multiple_formats(
     meta_map: Mapping[str, Any],
     format_options: dict[str, dict[str, str]],
     *,
-    sanitize_paths: bool = True,
     overwrite: bool = False,
 ) -> list[Path]:
     """Transcode *source* to one or more formats under *output_root*.
@@ -355,7 +347,6 @@ def export_multiple_formats(
             resolved_tags,
             meta_map,
             ext,
-            sanitize=sanitize_paths,
         )
         dest = output_root / rel
         export_audio(

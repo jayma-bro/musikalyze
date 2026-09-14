@@ -1,22 +1,17 @@
-#!/usr/bin/env python3
+
 """Test script to verify audio feature tags work correctly."""
 
 import os
+
 os.environ["CUDA_VISIBLE_DEVICES"] = ""
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"  # 0=all, 1=info off, 2=warnings off, 3=errors only
 import essentia
+
 essentia.log.infoActive = False
-import musikalyze as msklz
-from pathlib import Path
-import pandas as pd
 from musikalyze import (
-    EmbeddingModel,
-    ExportConfig,
-    LabelExtractor,
-    MusicProcess,
-    MusicBatch,
     TaggingConfig,
 )
+
 
 def test_audio_feature_tags():
     """Test that audio feature tags work correctly."""
@@ -24,7 +19,7 @@ def test_audio_feature_tags():
     print("Testing audio feature tag support...")
     
     # Create a test configuration that uses the new audio feature tags
-    tagging_config = TaggingConfig(
+    _tagging_config = TaggingConfig(
         tags={
             "artist": "{tag_artist}",
             "title": "{tag_title}",

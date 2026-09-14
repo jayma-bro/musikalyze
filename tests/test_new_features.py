@@ -1,10 +1,11 @@
 """Tests for genre deduplication, template separator, and export config."""
 
-import unittest
 import json
+import unittest
 from pathlib import Path
-from musikalyze.tagging import _extract_main_genre, _deduplicate_genres
+
 from musikalyze.config import ExportConfig, TaggingConfig
+from musikalyze.tagging import _deduplicate_genres, _extract_main_genre
 
 
 class TestGenreDeduplication(unittest.TestCase):
@@ -83,7 +84,6 @@ class TestExportConfigMode(unittest.TestCase):
             "mode": config.mode,
             "path_template": config.path_template,
             "format_options": config.format_options,
-            "sanitize_paths": config.sanitize_paths,
             "overwrite": config.overwrite,
         }
         json_str = json.dumps(data)
@@ -105,8 +105,9 @@ class TestLabelExtractorRegression(unittest.TestCase):
     def test_label_names_dict_type(self) -> None:
         """Test that LabelExtractor can accept dict for label_names."""
         # This validates the dataclass can be instantiated with dict label_names
-        from musikalyze.config import LabelExtractor
         from pathlib import Path
+
+        from musikalyze.config import LabelExtractor
         
         # Test basic dict format
         extractor = LabelExtractor(

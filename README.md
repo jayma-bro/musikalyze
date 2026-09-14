@@ -1,107 +1,245 @@
 # musikalyze
 
-`musikalyze` analyse des fichiers audio avec Essentia/TensorFlow, expose les résultats sous forme de métadonnées, applique des templates de tags et exporte une bibliothèque vers plusieurs formats.
+`musikalyze` is a Python toolkit for analysing, tagging and exporting music
+libraries. It combines Essentia/TensorFlow models with Mutagen and FFmpeg to
+provide:
+
+- EffNet and MAEST embeddings;
+- genre, mood and other label extractors;
+- classical audio descriptors such as BPM, key and ReplayGain;
+- template-based metadata tagging;
+- metadata-preserving transcoding to common audio formats;
+- retagging without re-encoding;
+- batch processing, a DataFrame API and a command-line interface;
+- optional Plotly-based visualisation through `MusicEDA`.
+
+The current release is **1.0.0**.
 
 ## Installation
 
-```bash
-pip install -e .
-```
-
-Pour le développement :
+Install the package in the Python environment used for analysis:
 
 ```bash
-pip install -e '.[dev]'
+python -m pip install -e .
 ```
 
-L’analyse nécessite également les modèles Essentia/TensorFlow et `ffmpeg` pour le transcodage.
+Development dependencies:
 
-## Concepts
+```bash
+python -m pip install -e ".[dev]"
+```
 
-- `EmbeddingModel` charge un modèle d’embedding (`effnet` ou `maest`).
-- `LabelExtractor` applique une tête de classification, multilabel ou régression.
-- `MusicProcess` traite un fichier.
-- `MusicBatch` traite récursivement un dossier.
-- `TaggingConfig` décrit les tags à remplacer explicitement.
-- `ExportConfig` décrit l’export, ou le retag sans réencodage.
-- `tempo_model_path` permet d’utiliser un modèle Essentia TempoCNN externe pour `meta_bpm`.
+Optional visualisation dependencies:
 
-Les scores internes des modèles sont des flottants `0..1`. Les seuils configurés par l’utilisateur sont toujours des pourcentages entiers `0..100`.
+```bash
+python -m pip install -e ".[viz]"
+```
 
-Au début d’un export, musikalyze indique si l’inférence TensorFlow utilise le GPU ou le CPU.
+FFmpeg is required for transcoding and for decoding formats that Essentia does
+not read directly. Check that it is available with:
 
-## Exemple Python
+```bash
+ffmpeg -version
+```
+
+Analysis also requires the Essentia/TensorFlow model files used by the chosen
+embedding models and label extractors. Model files are not bundled with the
+package.
+
+## Core concepts
+
+- `EmbeddingModel` loads an Essentia embedding model such as EffNet or MAEST.
+- `LabelExtractor` applies a classification, multilabel or regression head to
+  an embedding.
+- `MusicProcess` analyses and exports one audio file.
+- `MusicBatch` applies the same pipeline to a directory, sequentially and with
+  a `tqdm` progress bar.
+- `TaggingConfig` declares the tags that should be written.
+- `ExportConfig` controls transcoding, retagging and output paths.
+- `MusicEDA` provides optional exploratory visualisation for analysis data.
+
+Internal model scores are normally floats in `0..1`. User-facing thresholds
+and percentage metadata use integer percentages in `0..100`.
+
+## Python example
+
+The following is a compact version of the workflow used in the demonstration
+notebook. Paths are examples and must point to the models available on the
+local machine.
 
 ```python
 from pathlib import Path
+
 from musikalyze import (
     EmbeddingModel,
     ExportConfig,
     LabelExtractor,
-    MusicProcess,
+    MusicBatch,
     TaggingConfig,
 )
 
+models = Path("./models")
+
 effnet = EmbeddingModel(
-    embedding_model=Path("./models/discogs-effnet-bs64-1.pb"),
+    embedding_model=models / "discogs-effnet-bs64-1.pb",
     name="effnet",
 )
 
+# A multilabel genre model. ``thold`` is a percentage, not a 0..1 float.
 genre = LabelExtractor(
-    name="genre400",
+    name="genre512",
     embedder_name="effnet",
-    graph_path=Path("./models/genre_discogs400-discogs-effnet-1.pb"),
-    labels_path=Path("./models/genre_discogs400-discogs-effnet-1.json"),
+    graph_path=models / "genre_discogs400-discogs-effnet-1.pb",
+    labels_path=models / "genre_discogs400-discogs-effnet-1.json",
     category="genre",
     task="multilabel",
     count=3,
-    thold=70,
+    thold=40,
     count_thold_policy="union",
 )
+
+# A regression model can map a score to user-defined percentage intervals.
+approachability = LabelExtractor(
+    name="approachability",
+    embedder_name="effnet",
+    graph_path=models / "approachability_regression-discogs-effnet-1.pb",
+    labels_path=models / "approachability_regression-discogs-effnet-1.json",
+    category="mood",
+    label_names={
+        "approachable_low": (0, 35),
+        "approachable_mid": (36, 70),
+        "approachable_high": (71, 100),
+    },
+    output_tensor="model/Identity",
+    task="regression",
+)
+
+tagging = TaggingConfig(
+    separator=";",
+    tags={
+        "genre": "{meta_genres}",
+        "mood": "{meta_moods}",
+        "key": "{meta_key}",
+        "bpm": "{meta_bpm}",
+        "copyright": "{meta_genres_main};{meta_scale}",
+    },
+    extra={
+        "approachability": "{meta_mood_approachability_val_pct}",
+    },
+)
+
+export = ExportConfig(
+    output_root=Path("./output"),
+    formats="opus",
+    path_template="{tag_artist}/{tag_tracknumber_f} - {tag_title}.{ext}",
+    format_options={"opus": {"audio_bitrate": "256k"}},
+)
+
+batch = MusicBatch(
+    audio_path=Path("./library"),
+    embedders=[effnet],
+    extractors=[genre, approachability],
+    tagging_config=tagging,
+    export_config=export,
+    tempo_model_path=models / "deeptemp-k16-3.pb",  # optional
+)
+
+batch.export()
+```
+
+The same configuration can be used for one file with `MusicProcess`. The
+batch API uses `ExportConfig.output_root`; an optional argument to
+`batch.export(path)` temporarily overrides that output directory.
+
+## Analysis and DataFrames
+
+A single file can expose one value or all available metadata:
+
+```python
+from musikalyze import MusicProcess
 
 process = MusicProcess(
     audio_file=Path("./library/song.mp3"),
     embedders=[effnet],
     extractors=[genre],
-    tagging_config=TaggingConfig(
-        tags={
-            "genre": "{meta_genres}",
-            "key": "{meta_key}",
-            "copyright": "{meta_genres_main};{meta_scale}",
-        },
-        separator=";",
-        extra={
-            "genre_main": "{meta_genres_main}",
-        },
-    ),
-    export_config=ExportConfig(
-        output_root=Path("./output"),
-        formats="opus",
-        path_template="{tag_artist}/{tag_title}.{ext}",
-        format_options={"opus": {"audio_bitrate": "256k"}},
-    ),
 )
 
-process.process_file()
+process.label("meta_genres")
+process.label("meta_bpm")
+process.labels
 ```
 
-Pour un dossier, `MusicBatch.export()` utilise directement `ExportConfig` :
+Batch analysis returns one row per file:
 
 ```python
-from musikalyze import MusicBatch
-
-batch = MusicBatch("./library", embedders=[effnet], extractors=[genre], export_config=process.export_config)
-batch.export()                    # utilise output_root
-batch.export(Path("./temporary-output"))  # surcharge output_root pour cet appel
+df = batch.analyze("analyze")
 ```
 
-`ExportConfig(delete_after=True)` supprime le fichier source uniquement après
-la réussite de son export. Cette option fonctionne de la même manière pour
-`MusicProcess` et `MusicBatch`.
+Useful targeted forms include:
 
-## Retag sans réencodage
+```python
+df = batch.analyze("meta_genres")
+df = batch.analyze(["meta_genres", "meta_bpm", "tag_artist"])
+```
 
-Pour copier le fichier original et modifier uniquement ses tags :
+`analyze("analyze")` includes file information and grouped metadata such as
+`metas_all_pct`. Nested dictionaries can be expanded with:
+
+```python
+df = batch.explode_metas(df, "metas_all_pct")
+```
+
+## Metadata and tagging model
+
+Metadata has two namespaces:
+
+- `tag_*` values are read from the original file;
+- `meta_*` values are computed by musikalyze.
+
+For example:
+
+```text
+{tag_artist}
+{tag_title}
+{tag_tracknumber_f}
+{meta_genres}
+{meta_genres_main}
+{meta_mood_happy_val_pct}
+{meta_bpm}
+```
+
+`TaggingConfig.tags` contains standard logical tags. `TaggingConfig.extra`
+contains custom tags such as model scores. Lists are joined with the configured
+separator and duplicate or empty values are removed.
+
+Exports preserve original metadata by default. Only tags explicitly declared
+in `tags` or `extra` are replaced or added. Artwork is preserved when the
+container supports it. Logical tag names are translated to the appropriate
+ID3, Vorbis, MP4 or ASF representation.
+
+Genre metadata follows the selected model scores. `meta_genres_main` contains
+the main part of the highest-scoring complete genre, while
+`meta_genres_sub` contains selected subgenres without duplicates.
+
+See [`METADATA.md`](METADATA.md) for the compact metadata reference.
+
+## Transcoding and retagging
+
+Normal export transcodes audio with FFmpeg:
+
+```python
+ExportConfig(
+    output_root=Path("./output"),
+    formats="opus",
+    format_options={"opus": {"audio_bitrate": "256k"}},
+)
+```
+
+A bitrate such as `256k` is an encoder target, not an exact measured bitrate.
+Opus is a lossy codec; 256 kbps is generally considered very high quality, but
+it cannot improve a lossy source such as an MP3.
+
+To change tags without re-encoding:
 
 ```python
 ExportConfig(
@@ -110,188 +248,113 @@ ExportConfig(
 )
 ```
 
-En mode `retag=True` :
+In retag mode, the source file is copied and only the metadata is modified.
+Format, bitrate and FFmpeg codec options are ignored. The original encoding,
+audio stream and artwork are preserved.
 
-- le fichier est copié bit à bit avant modification des tags ;
-- aucun transcodage n’est effectué ;
-- `formats`, `audio_bitrate` et les options ffmpeg sont ignorés ;
-- les tags non configurés sont conservés ;
-- l’artwork est conservé par la copie du fichier.
+`delete_after=True` can be set in `ExportConfig` when the source should be
+removed only after a successful export.
 
-## CLI
+Output path templates are always sanitized. Separators written in the template
+create directories, while separators coming from a metadata value are escaped:
 
-La CLI utilise des sous-commandes. La commande principale est :
-
-```bash
-musikalyze ./library --config ./config.json export ./output_folder
+```text
+{tag_artist}/{tag_title}.{ext}
 ```
 
-Elle accepte également un seul fichier :
+A title such as `music/test` becomes `music_test.opus`, not an unintended
+nested directory.
 
-```bash
-musikalyze ./song.mp3 --config ./config.json export ./output_folder
+## Optional TempoCNN model
+
+`meta_bpm` uses Essentia's `RhythmExtractor2013` by default. An external
+TempoCNN model can be selected with:
+
+```python
+MusicProcess(
+    audio_file=Path("song.opus"),
+    tempo_model_path=Path("models/deeptemp-k16-3.pb"),
+)
 ```
 
-Autres commandes disponibles :
+The model is loaded only when BPM metadata is requested. Opus and other
+unsupported source containers are decoded through the FFmpeg fallback before
+TempoCNN receives 11025 Hz mono audio.
+
+## Command-line interface
+
+The package installs the `musikalyze` command:
+
+```bash
+musikalyze ./library --config ./config.json export ./output
+```
+
+A single file is also accepted:
+
+```bash
+musikalyze ./song.mp3 --config ./config.json export ./output
+```
+
+Other commands:
 
 ```bash
 musikalyze ./library --config ./config.json analyze
-musikalyze ./library --config ./config.json analyze --key meta_genres_all
+musikalyze ./library --config ./config.json analyze --key meta_genres
 musikalyze ./library --config ./config.json analyze --output analysis.json
 musikalyze ./library --config ./config.json preview
 ```
 
-`export` est une sous-commande plutôt qu’un flag afin de permettre d’ajouter d’autres opérations sans ambiguïté. Le dossier passé après `export` est optionnel dans l’API Python, mais reste le chemin de sortie explicite de la commande CLI et surcharge `export_config.output_root`.
+The command requires a JSON configuration. Relative paths inside the JSON are
+resolved relative to the configuration file. See [`config.schema.json`](config.schema.json)
+and [`config.example.json`](config.example.json).
 
-La suppression des originaux ne se configure pas par un flag CLI : elle se fait dans le JSON avec `"delete_after": true`.
-
-### BPM avec un modèle TempoCNN externe
-
-Le BPM utilise `RhythmExtractor2013` par défaut. Pour utiliser un modèle Essentia
-TempoCNN, indiquez son fichier `.pb` dans la configuration :
-
-```json
-{
-  "tempo_model_path": "models/deeptemp-k16-3.pb"
-}
-```
-
-Le chemin est relatif au fichier JSON. Le modèle est chargé uniquement lors de
-la demande de `meta_bpm`.
-
-### Débit Opus
-
-`audio_bitrate: "256k"` est une cible moyenne pour l’encodeur Opus, pas une
-contrainte exacte. Le débit observé peut varier selon le contenu, les frames,
-les métadonnées et le conteneur. 256 kb/s est généralement considéré comme une
-très haute qualité pour Opus et dépasse les besoins usuels de la plupart des
-écoutes, même si cela reste un transcodage avec perte.
-
-Le schéma est disponible dans [`config.schema.json`](config.schema.json), et un exemple complet dans [`config.example.json`](config.example.json).
-
-### Configuration JSON
-
-Les chemins relatifs sont résolus relativement au fichier JSON :
-
-```json
-{
-  "embedding_models": {
-    "effnet": {
-      "embedding_model": "models/discogs-effnet-bs64-1.pb",
-      "name": "effnet"
-    }
-  },
-  "label_extractors": [
-    {
-      "name": "genre400",
-      "embedder_name": "effnet",
-      "graph_path": "models/genre_discogs400-discogs-effnet-1.pb",
-      "labels_path": "models/genre_discogs400-discogs-effnet-1.json",
-      "category": "genre",
-      "task": "multilabel",
-      "count": 3,
-      "thold": 70,
-      "count_thold_policy": "union"
-    }
-  ],
-  "tagging_config": {
-    "separator": ";",
-    "tags": {
-      "genre": "{meta_genres}",
-      "key": "{meta_key}",
-      "copyright": "{meta_genres_main};{meta_scale}"
-    },
-    "extra": {
-      "energy": "{meta_mood_energy_val_pct}"
-    }
-  },
-  "export_config": {
-    "formats": "opus",
-    "path_template": "{tag_artist}/{tag_title}.{ext}",
-    "format_options": {
-      "opus": {"audio_bitrate": "256k"}
-    },
-    "retag": false
-  }
-}
-```
-
-## Templates
-
-Les templates utilisent les variables `tag_*` et `meta_*` :
-
-```text
-{tag_artist}
-{tag_track_number:02d}
-{meta_genres}
-{meta_genres_main}
-{meta_mood_happy_val_pct}
-{ext}
-```
-
-Les listes sont jointes avec `TaggingConfig.separator`. Les valeurs vides sont supprimées avant assemblage.
-
-## Batch et DataFrame
-
-```python
-from musikalyze import MusicBatch
-
-batch = MusicBatch("./library", embedders=[effnet], extractors=[genre])
-df = batch.analyze("analyze")
-```
-
-`MusicBatch` utilise actuellement un seul worker pour préserver la stabilité
-d’Essentia/TensorFlow, aussi bien sur CPU que sur GPU. Les workers multiples
-sont temporairement désactivés : dans un notebook ou après l’initialisation de
-TensorFlow, le fork de modèles Essentia/TensorFlow peut rester bloqué ou faire
-planter le kernel. Le paramètre `max_workers` est conservé pour compatibilité,
-mais une valeur supérieure à un est ignorée avec un avertissement.
-
-La progression reste affichée par `tqdm` au fur et à mesure du traitement.
-
-`MusicBatch.analyze("analyze")` fournit notamment :
-
-- `filename`
-- `filepath`
-- `artist`
-- `album`
-- `title`
-- `track`
-- `metas_all_pct`
-
-Les dictionnaires peuvent être aplatis avec :
-
-```python
-df = batch.explode_metas(df, "metas_all_pct")
-```
+At the start of an export, musikalyze reports TensorFlow device visibility.
+This is a runtime visibility check, not a guarantee that every operation in an
+Essentia graph is placed on the GPU. TensorFlow and Essentia logs are quiet by
+default; set `TF_CPP_MIN_LOG_LEVEL=0` before launching if detailed diagnostics
+are needed.
 
 ## Visualisation
+
+Install the optional visualisation dependencies:
+
+```bash
+python -m pip install -e ".[viz]"
+```
+
+Then:
 
 ```python
 from musikalyze import MusicEDA
 
 eda = MusicEDA(df, genre_cols="genre400_all")
 figure = eda.plot_genre_threshold_analysis()
+figure.show()
 ```
 
-Les visualisations avancées utilisent les dépendances optionnelles :
+## Testing
 
-```bash
-pip install -e '.[viz]'
-```
-
-## Tests
-
-Tests rapides :
+Fast tests:
 
 ```bash
 pytest -q -m 'not integration'
 ```
 
-Tests d’intégration avec les vrais fichiers audio et modèles :
+Integration tests use real audio and model fixtures and can take several
+minutes:
 
 ```bash
 pytest -q -m integration
 ```
 
-Les tests d’intégration peuvent prendre plusieurs minutes car ils exécutent Essentia/TensorFlow sur les fichiers de `tests/fixtures`.
+## Project files
+
+- `src/musikalyze/`: package source;
+- `tests/`: unit and integration tests;
+- `demo/`: notebooks, sample configuration and demonstration resources;
+- `config.schema.json`: JSON Schema for CLI configuration;
+- `config.example.json`: small standalone configuration example.
+
+## License
+
+musikalyze is released under the MIT license.

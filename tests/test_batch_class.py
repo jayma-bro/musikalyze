@@ -11,7 +11,7 @@ import pytest
 
 import musikalyze.batch as batch_mod
 from musikalyze import MusicBatch
-from musikalyze.config import EmbeddingModel, ExportConfig, LabelExtractor
+from musikalyze.config import ExportConfig
 from musikalyze.lazy_engine import LazyMetaEngine
 from musikalyze.process import MusicProcess
 
@@ -149,10 +149,6 @@ def test_not_a_directory(tmp_path):
         MusicBatch(tmp_path / "missing")
 
 
-def test_batch_uses_stable_single_worker(library):
-    assert MusicBatch(library)._use_pool() is False
-    assert MusicBatch(library, max_workers=4)._use_pool() is False
-
 
 # ---------------------------------------------------------------------------
 # analyze()
@@ -262,34 +258,6 @@ def test_preview_requires_config(library):
     with pytest.raises(ValueError):
         MusicBatch(library).preview_paths()
 
-
-# ---------------------------------------------------------------------------
-# Parallel-worker serialization
-# ---------------------------------------------------------------------------
-
-
-def test_serialization_roundtrip():
-    e = EmbeddingModel(embedding_model=Path("m.pb"), name="maest", patch_size=8)
-    assert batch_mod._deserialize_embedding(batch_mod._serialize_embedding(e)) == e
-
-    x = LabelExtractor(name="g", embedder_name="effnet", graph_path=Path("g.pb"), labels_path=Path("l.json"))
-    assert batch_mod._deserialize_extractor(batch_mod._serialize_extractor(x)) == x
-
-
-def test_worker_process_one_reports_errors(tmp_path):
-    path = str(tmp_path / "missing.wav")
-    ok_path, ok, error = batch_mod._worker_process_one(path, [], [], {}, {"output_root": str(tmp_path)}, ";")
-    assert ok_path == path
-    assert ok is False
-    assert error
-
-
-def test_worker_analyze_one_reports_errors(tmp_path):
-    path = str(tmp_path / "missing.wav")
-    got_path, labels, error = batch_mod._worker_analyze_one(path, [], [], ";")
-    assert got_path == path
-    assert labels is None
-    assert error
 
 
 # ---------------------------------------------------------------------------

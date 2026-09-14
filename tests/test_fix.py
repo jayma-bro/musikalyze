@@ -1,31 +1,28 @@
-#!/usr/bin/env python3
+
 """
 Test script to verify the LabelExtractor regression threshold mapping works correctly.
 """
 
 import os
+
 os.environ["CUDA_VISIBLE_DEVICES"] = ""
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"  # 0=all, 1=info off, 2=warnings off, 3=errors only
 import essentia
+
 essentia.log.infoActive = False
-import musikalyze as msklz
 from pathlib import Path
-import pandas as pd
+
 from musikalyze import (
-    EmbeddingModel,
-    ExportConfig,
     LabelExtractor,
-    MusicProcess,
-    MusicBatch,
-    TaggingConfig,
 )
+
 
 # Test the fix with the exact scenario from the user's issue
 def test_regression_threshold_mapping():
     print("Testing LabelExtractor regression threshold mapping...")
     
     # Create a simple regression label extractor with thresholds like in the user's example
-    engagement = LabelExtractor(
+    _engagement = LabelExtractor(
         name="engagement",
         embedder_name="effnet",
         graph_path=Path("./models/engagement_regression-discogs-effnet-1.pb"),

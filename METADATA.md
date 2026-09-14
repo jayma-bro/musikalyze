@@ -1,14 +1,17 @@
-# Métadonnées et tagging
+# Metadata reference
 
-Ce document décrit les noms utilisés par `musikalyze` pour lire, analyser et écrire les métadonnées audio.
+This document summarizes the metadata contract used by musikalyze. It is
+intended as a reference for configuring templates, not as a description of
+container-specific internals.
 
-## Règle fondamentale : `tag_*` et `meta_*`
+## Two metadata namespaces
 
-Les deux préfixes ont des origines différentes.
+musikalyze keeps source tags and analysis results separate.
 
-### `tag_*` : informations déjà présentes dans le fichier
+### `tag_*`: source-file metadata
 
-Les tags du fichier original sont lus sans analyse audio et sont disponibles sous la forme :
+`tag_*` values are read from the original file without audio analysis. Common
+keys include:
 
 ```text
 tag_artist
@@ -36,17 +39,20 @@ tag_bpm
 tag_mood
 tag_grouping
 tag_key
+tag_rating
 tag_replaygain_track_gain
 tag_replaygain_track_peak
 tag_replaygain_album_gain
 tag_replaygain_album_peak
 ```
 
-Ces valeurs peuvent servir à construire un chemin d’export ou à conserver les tags originaux.
+These values can be used in output paths and tag templates. Unconfigured source
+tags are preserved during export whenever the target format has a compatible
+representation.
 
-### `meta_*` : résultats de l’analyse Musikalyze
+### `meta_*`: musikalyze results
 
-Ces valeurs sont calculées à partir de l’audio ou des extracteurs configurés :
+Classical descriptors are exposed as scalar metadata:
 
 ```text
 meta_bpm
@@ -57,136 +63,8 @@ meta_rgain_peak
 meta_rgain_peak_dbfs
 ```
 
-Les valeurs `meta_rgain_*` sont différentes des tags `tag_replaygain_*` déjà stockés dans le fichier.
-
-## `TaggingConfig`
-
-```python
-TaggingConfig(
-    tags={
-        "genre": "{meta_genres}",
-        "key": "{meta_key}",
-        "bpm": "{meta_bpm}",
-        "copyright": "{meta_genres_main};{meta_scale}",
-    },
-    separator=";",
-    extra={
-        "energy": "{meta_mood_energy_val_pct}",
-        "custom_tag": "{tag_artist} - {tag_title}",
-    },
-)
-```
-
-### `tags`
-
-`tags` contient les tags standards écrits dans le fichier de sortie.
-
-Clés standards prises en charge :
-
-```text
-artist
-title
-album
-genre
-date
-tracknumber
-discnumber
-composer
-albumartist
-comment
-lyrics
-copyright
-publisher
-encodedby
-encoder
-isrc
-language
-albumsort
-artistsort
-titlesort
-website
-bpm
-mood
-grouping
-key
-```
-
-Les espaces éventuels dans cette liste sont uniquement typographiques : les noms de clés ne contiennent pas d’espace.
-
-### `extra`
-
-`extra` permet de créer des tags supplémentaires sans modifier la liste des tags standards :
-
-```python
-extra={
-    "approachability": "{meta_mood_approachability_val_pct}",
-    "energy": "{meta_mood_energy_val_pct}",
-    "analysis_version": "musikalyze-0.6",
-}
-```
-
-Les tags personnalisés sont écrits selon les possibilités du format cible. Un format peut ne pas avoir de correspondance parfaite pour un tag donné.
-
-### Conservation des tags
-
-Par défaut, l’export conserve les tags présents dans le fichier original. Seuls les tags explicitement déclarés dans `tags` ou `extra` sont remplacés ou ajoutés.
-
-Un tag vide ou absent dans la configuration ne supprime pas automatiquement le tag original.
-
-## Genres
-
-Les labels de genre peuvent contenir un genre principal et un sous-genre :
-
-```text
-Reggae---Dub
-Electronic---Dub
-```
-
-Les labels sont triés par score et limités par les paramètres de `LabelExtractor` (`count`, `thold` et `count_thold_policy`).
-
-### Genre principal
-
-Le genre principal est uniquement la partie gauche du label complet ayant le score le plus élevé.
-
-Avec :
-
-```text
-Reggae---Dub : 83
-Electronic---Dub : 80
-```
-
-on obtient :
-
-```text
-meta_genres_main = "Reggae"
-```
-
-`Electronic` ne devient pas un second genre principal.
-
-### Sous-genres
-
-Les sous-genres sont les parties situées à droite de `---` parmi les labels sélectionnés :
-
-```text
-meta_genres_sub = "Dub"
-```
-
-Les doublons sont retirés en conservant le premier ordre d’apparition.
-
-Les alias suivants sont disponibles :
-
-```text
-meta_genre_main
-meta_genre_sub
-meta_genres_main
-meta_genres_sub
-```
-
-Les formes plurielles sont recommandées dans les templates généraux.
-
-## Extracteurs
-
-Pour un extracteur nommé `genre400` dans la catégorie `genre` :
+Extractor metadata uses the extractor category and name. For an extractor
+called `genre400` in category `genre`:
 
 ```text
 meta_genre_genre400
@@ -198,7 +76,7 @@ meta_genre_genre400_all
 meta_genre_genre400_all_pct
 ```
 
-Pour un extracteur nommé `happy` dans la catégorie `mood` :
+For an extractor called `happy` in category `mood`:
 
 ```text
 meta_mood_happy
@@ -210,31 +88,77 @@ meta_mood_happy_all
 meta_mood_happy_all_pct
 ```
 
-Les suffixes `_pct` contiennent des scores en pourcentage entier `0..100`.
+Values with `_pct` are integer percentages in `0..100`. Other score values are
+model values, normally floats in `0..1`.
 
-Les suffixes sans `_pct` contiennent les scores internes, généralement des flottants `0..1`.
-
-## Pourcentages et seuils
-
-Les paramètres configurés par l’utilisateur utilisent toujours des entiers `0..100`.
-
-### Multilabel
+## Tagging configuration
 
 ```python
-LabelExtractor(
-    name="genre400",
-    embedder_name="effnet",
-    graph_path=Path("models/genre.pb"),
-    labels_path=Path("models/genre.json"),
-    category="genre",
-    task="multilabel",
-    count=3,
-    thold=70,
-    count_thold_policy="union",
+TaggingConfig(
+    separator=";",
+    tags={
+        "genre": "{meta_genres}",
+        "key": "{meta_key}",
+        "bpm": "{meta_bpm}",
+        "copyright": "{meta_genres_main};{meta_scale}",
+    },
+    extra={
+        "energy": "{meta_mood_energy_val_pct}",
+        "source": "{tag_artist} - {tag_title}",
+    },
 )
 ```
 
-### Régression avec labels par intervalles
+- `tags` contains standard logical audio tags;
+- `extra` contains arbitrary custom tags;
+- `separator` joins lists and removes empty elements and duplicates;
+- an empty or absent configured value does not automatically erase the source
+  tag;
+- only keys explicitly configured in `tags` or `extra` are overwritten.
+
+Standard logical keys include `artist`, `title`, `album`, `genre`, `date`,
+`tracknumber`, `discnumber`, `composer`, `albumartist`, `comment`, `lyrics`,
+`copyright`, `publisher`, `encodedby`, `encoder`, `isrc`, `language`, sort
+fields, `website`, `bpm`, `mood`, `grouping`, `key` and `rating`.
+
+Custom model features such as `energy`, `danceability` or
+`instrumentalness` belong in `extra`. They are written using the target
+container's available metadata mechanism.
+
+## Genres and moods
+
+Genre labels can contain a main genre and a subgenre separated by `---`:
+
+```text
+Reggae---Dub
+Electronic---Dub
+```
+
+The selected labels are ordered by score and limited by the extractor's
+`count`, `thold` and `count_thold_policy` settings.
+
+For example, if the selected scores are:
+
+```text
+Reggae---Dub       83
+Electronic---Dub   80
+```
+
+then:
+
+```text
+meta_genres_main = ["Reggae"]
+meta_genres_sub  = ["Dub"]
+```
+
+The main genre comes only from the highest-scoring complete label. Subgenres
+are deduplicated while preserving their first-seen order. Grouped mood and
+genre values are returned as lists; `TaggingConfig.separator` controls their
+serialized form in tags.
+
+## Thresholds and regression labels
+
+User-facing thresholds are integer percentages:
 
 ```python
 LabelExtractor(
@@ -245,50 +169,50 @@ LabelExtractor(
     category="mood",
     task="regression",
     label_names={
-        "agrsv_low": (0, 16),
-        "agrsv_midlow": (17, 44),
-        "agrsv_hi": (45, 100),
+        "aggressive_low": (0, 16),
+        "aggressive_mid": (17, 44),
+        "aggressive_high": (45, 100),
     },
 )
 ```
 
-Le modèle produit par exemple `0.443`. Musikalyze le convertit en `44` avant comparaison.
+A model value of `0.443` is rounded to `44` before interval matching. If
+intervals overlap, the interval with the lowest lower bound wins. If no
+interval matches, no label is emitted.
 
-En cas de chevauchement, l’intervalle ayant la borne basse la plus faible est prioritaire. Si aucune plage ne correspond, aucun label n’est attribué.
+For multilabel extractors, `thold` is also in `0..100`; `count` and
+`count_thold_policy` control how many labels are selected.
 
-## Métadonnées classiques
+## Classical descriptors
 
-Les métadonnées classiques ne sont pas des prédictions de label. Elles sont calculées directement par Essentia et accessibles comme des valeurs simples :
+Classical values are calculated by Essentia when requested:
 
-| Clé | Valeur |
+| Key | Meaning |
 |---|---|
-| `meta_bpm` | BPM arrondi |
-| `meta_key` | Tonalité, par exemple `C#` |
-| `meta_scale` | Mode, par exemple `minor` |
-| `meta_rgain_gain` | Gain ReplayGain calculé |
-| `meta_rgain_peak` | Peak linéaire calculé |
-| `meta_rgain_peak_dbfs` | Peak en dBFS |
+| `meta_bpm` | detected or TempoCNN BPM, rounded to an integer |
+| `meta_key` | estimated key, such as `C#` |
+| `meta_scale` | estimated scale, such as `minor` |
+| `meta_rgain_gain` | calculated track gain |
+| `meta_rgain_peak` | calculated linear peak |
+| `meta_rgain_peak_dbfs` | calculated peak in dBFS |
 
-Elles peuvent être utilisées directement dans `tags` :
+Existing ReplayGain tags remain source metadata under `tag_replaygain_*` and
+are distinct from calculated `meta_rgain_*` values.
 
-```python
-tags={
-    "bpm": "{meta_bpm}",
-    "key": "{meta_key}",
-    "copyright": "{meta_genres_main};{meta_scale}",
-}
-```
+An external TempoCNN model can be selected with `tempo_model_path` on
+`MusicProcess` or `MusicBatch`. Without it, `RhythmExtractor2013` is used for
+BPM.
 
-## Numéros de piste et de disque
+## Track and disc numbers
 
-Les tags originaux peuvent contenir un numéro simple ou une valeur de type `numéro/total` :
+Source values may contain a number and a total:
 
 ```text
 tracknumber = "02/12"
 discnumber = "1/2"
 ```
 
-La fonction `format_nbr()` extrait le premier numéro et normalise son affichage pour les templates de chemin :
+`format_nbr()` extracts the first number and formats it with two digits:
 
 ```python
 from musikalyze.tagging import format_nbr
@@ -298,178 +222,98 @@ format_nbr("1/2")    # "01"
 format_nbr(3)         # "03"
 ```
 
-Dans les mappings de templates, les variantes préparées sont disponibles sous :
+Templates can use:
 
 ```text
-tag_tracknumber
-tag_tracknumber_f
-tag_discnumber
-tag_discnumber_f
-```
-
-La variante `_f` est utile lorsque l’on veut contrôler explicitement la valeur normalisée dans un nom de fichier. Le placeholder recommandé pour un format numérique reste :
-
-```text
+{tag_tracknumber}
+{tag_tracknumber_f}
+{tag_discnumber}
+{tag_discnumber_f}
 {tag_track_number:02d}
 ```
 
-qui est calculé à partir de `tag_tracknumber`.
+The `_f` values are already formatted strings. The numeric
+`tag_track_number` form is useful with a format specification such as `:02d`.
 
-## Templates et séparateurs
+## Ratings
 
-Le séparateur par défaut est `;` :
-
-```python
-TaggingConfig(
-    separator=";",
-    tags={"genre": "{meta_genres}"},
-)
-```
-
-Une liste :
-
-```text
-["Rock", "Alternative", "Rock"]
-```
-
-devient :
-
-```text
-Rock;Alternative
-```
-
-Les valeurs vides sont supprimées :
-
-```text
-["acoustic", "", "sad"] → "acoustic;sad"
-```
-
-## Export et retag
-
-### Transcodage
-
-```python
-ExportConfig(
-    output_root=Path("output"),
-    formats="opus",
-    format_options={"opus": {"audio_bitrate": "256k"}},
-)
-```
-
-### Copie sans réencodage
-
-```python
-ExportConfig(
-    output_root=Path("retagged"),
-    retag=True,
-    delete_after=False,
-)
-```
-
-Dans ce mode :
-
-- le fichier original est copié ;
-- les tags sont modifiés sur la copie ;
-- le flux audio n’est pas réencodé ;
-- `formats` et `format_options` sont ignorés ;
-- l’artwork est conservé par la copie du fichier ;
-- les tags non configurés restent présents.
-
-### Export batch
-
-```python
-batch.export()                    # ExportConfig.output_root
-batch.export(Path("temporary-output"))  # surcharge temporaire du dossier
-```
-
-`delete_after=True` se configure dans `ExportConfig`, jamais comme argument de
-`MusicBatch.export()`. Après un export réussi, `MusicProcess` supprime le
-fichier source ; en cas d’échec, il est conservé. Les répertoires sources
-vides sont ensuite nettoyés par le batch.
-
-### BPM TempoCNN optionnel
-
-`meta_bpm` utilise `RhythmExtractor2013` par défaut. Un modèle Essentia
-TempoCNN peut être fourni à `MusicProcess` ou `MusicBatch` :
-
-```python
-MusicProcess(
-    audio_file=Path("song.mp3"),
-    tempo_model_path=Path("models/deeptemp-k16-3.pb"),
-)
-```
-
-Le même paramètre est disponible dans le JSON CLI sous `tempo_model_path`.
-
-## Formats
-
-Les noms logiques sont traduits vers les noms du conteneur :
-
-| Format | Famille de tags |
-|---|---|
-| MP3 | ID3v2 / EasyID3 / TXXX |
-| FLAC | Vorbis comments |
-| OGG | Vorbis comments |
-| Opus | Vorbis comments |
-| M4A | MP4/iTunes atoms |
-| WMA | ASF |
-
-`copyright` est le nom logique recommandé. `TCOP` est le nom d’une frame ID3 correspondant au copyright, pas un champ métier distinct.
-
-Pour les tags issus d’un MP3, `TBPM` est l’alias ID3 brut de `bpm`. Lorsqu’un
-export vers Opus/FLAC réécrit le BPM, musikalyze supprime cet alias brut afin
-d’éviter un ancien `TBPM` en doublon du tag canonique `bpm`. En revanche,
-`TRACKNUMBER` est le nom canonique Vorbis/Opus correspondant à `tracknumber` ;
-son affichage en majuscules est normal et nécessaire au conteneur.
-
-### Notes et étoiles
-
-La clé logique `rating` est exprimée en étoiles, de `0` à `5` :
+The logical `rating` value is expressed as `0..5` stars:
 
 ```python
 TaggingConfig(tags={"rating": "5"})
 ```
 
-Les conversions appliquées sont :
+musikalyze maps it to the target container when possible:
 
-| Format | Représentation |
+| Format | Representation |
 |---|---|
-| MP3 | frame ID3 `POPM`, note `0..255` |
-| Opus/Ogg/FLAC | commentaire Vorbis `RATING:<email>`, valeur `0..1` |
-| M4A/WMA | tag textuel de compatibilité `rating`, valeur `0..5` |
+| MP3 | ID3 `POPM`, score `0..255` |
+| Opus/Ogg/FLAC | Vorbis `RATING:<email>`, score `0..1` |
+| M4A | iTunes freeform rating, score `0..5` |
+| Other formats | readable text fallback where supported |
 
-Lors d’un export MP3 vers un autre format, l’email du frame `POPM` et la note
-sont conservés autant que le conteneur cible le permet. Lors d’un export vers
-MP3, le score est reconverti vers l’échelle `POPM 0..255`.
+When converting an MP3, the `POPM` email and counter are retained where the
+target format supports an equivalent representation.
 
-## Analyse batch
+## Export behavior
+
+```python
+ExportConfig(
+    output_root=Path("output"),
+    formats="opus",
+    path_template="{tag_artist}/{tag_title}.{ext}",
+    format_options={"opus": {"audio_bitrate": "256k"}},
+)
+```
+
+Normal exports use FFmpeg and preserve source tags and artwork as far as the
+target container allows. `256k` is an Opus bitrate target, not an exact
+measured bitrate.
+
+For no-reencode tagging:
+
+```python
+ExportConfig(
+    output_root=Path("retagged"),
+    retag=True,
+)
+```
+
+The file is copied first, then tags are modified on the copy. The audio stream
+is not re-encoded and codec settings are ignored. `delete_after=True` removes
+the source only after successful output creation.
+
+Output paths are always sanitized. Explicit separators in the template create
+folders, while separators inside metadata values are escaped. For example,
+`{tag_title}.opus` with a title `music/test` produces `music_test.opus`.
+
+## Container mapping
+
+Logical keys are translated to container-specific metadata:
+
+| Format | Metadata family |
+|---|---|
+| MP3 | ID3v2 / EasyID3 / TXXX |
+| FLAC | Vorbis comments |
+| Ogg | Vorbis comments |
+| Opus | Vorbis comments |
+| M4A | MP4/iTunes atoms and freeform fields |
+| WMA | ASF metadata where supported |
+
+`copyright` is the logical name for copyright. `TCOP` is the ID3 frame name,
+not a separate business field. `TRACKNUMBER` is the normal Vorbis/Opus name
+for logical `tracknumber`.
+
+## Batch analysis
 
 ```python
 df = batch.analyze("analyze")
-```
-
-La colonne `metas_all_pct` contient les métadonnées regroupées avec des scores en pourcentage. Elle peut être aplatie avec :
-
-```python
 df = batch.explode_metas(df, "metas_all_pct")
 ```
 
-Pour une analyse ciblée :
+The analysis DataFrame can contain file metadata, grouped predictions and
+percentage score dictionaries. Targeted analysis can request a list such as:
 
 ```python
-df = batch.analyze(["meta_genres", "meta_bpm", "tag_artist"])
+batch.analyze(["meta_genres", "meta_bpm", "tag_artist"])
 ```
-
-## CLI
-
-```bash
-musikalyze ./library --config ./config.json export ./output
-```
-
-Pour un seul fichier :
-
-```bash
-musikalyze ./song.mp3 --config ./config.json export ./output
-```
-
-Voir `README.md` pour le schéma complet de `config.json` et les commandes `analyze` et `preview`.

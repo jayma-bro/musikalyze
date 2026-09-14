@@ -1,9 +1,8 @@
 """Quick smoke test for the MusicEDA visualizer."""
 
-import json
 import random
+
 import pandas as pd
-import numpy as np
 
 # ---- Build mock data similar to MusicBatch.analyze() output ----
 
@@ -88,7 +87,7 @@ for name, fn in methods.items():
         print(f"  OK   {name}")
     except ImportError as e:
         print(f"  SKIP {name}: {e}")
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         print(f"  FAIL {name}: {e}")
 
 print("\nAll tests passed!")

@@ -7,8 +7,7 @@ import json
 import logging
 from collections import Counter
 from collections.abc import Iterable, Iterator, Sequence
-from concurrent.futures import ProcessPoolExecutor, as_completed
-from dataclasses import asdict, replace
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -85,93 +84,6 @@ def sample_audio_files(
 
 
 # ---------------------------------------------------------------------------
-# Config serialization for ProcessPoolExecutor workers
-# ---------------------------------------------------------------------------
-
-
-def _serialize_embedding(e: EmbeddingModel) -> dict[str, Any]:
-    d = asdict(e)
-    d["embedding_model"] = str(e.embedding_model)
-    return d
-
-
-def _serialize_extractor(e: LabelExtractor) -> dict[str, Any]:
-    d = asdict(e)
-    d["graph_path"] = str(e.graph_path)
-    d["labels_path"] = str(e.labels_path) if e.labels_path else None
-    return d
-
-
-def _deserialize_embedding(d: dict[str, Any]) -> EmbeddingModel:
-    d = dict(d)
-    d["embedding_model"] = Path(d["embedding_model"])
-    return EmbeddingModel(**d)
-
-
-def _deserialize_extractor(d: dict[str, Any]) -> LabelExtractor:
-    d = dict(d)
-    d["graph_path"] = Path(d["graph_path"])
-    if d.get("labels_path"):
-        d["labels_path"] = Path(d["labels_path"])
-    return LabelExtractor(**d)
-
-
-def _worker_analyze_one(
-    audio_path: str,
-    embedder_dicts: list[dict[str, Any]],
-    extractor_dicts: list[dict[str, Any]],
-    separator: str,
-    tempo_model_path: str | None = None,
-) -> tuple[str, dict[str, Any] | None, str | None]:
-    """Run a single file through the full analysis pipeline and return its labels dict."""
-    try:
-        embedders = tuple(_deserialize_embedding(d) for d in embedder_dicts)
-        extractors = tuple(_deserialize_extractor(d) for d in extractor_dicts)
-        proc = MusicProcess(
-            audio_file=Path(audio_path),
-            embedders=embedders,
-            extractors=extractors,
-            separator=separator,
-            tempo_model_path=tempo_model_path,
-        )
-        return (audio_path, proc.labels, None)
-    except Exception as e:  # noqa: BLE001
-        return (audio_path, None, f"{type(e).__name__}: {e}")
-
-
-def _worker_process_one(
-    audio_path: str,
-    embedder_dicts: list[dict[str, Any]],
-    extractor_dicts: list[dict[str, Any]],
-    tagging_dict: dict[str, Any],
-    export_dict: dict[str, Any],
-    separator: str,
-    tempo_model_path: str | None = None,
-) -> tuple[str, bool, str | None]:
-    """Run a single file through the full tag + export pipeline."""
-    try:
-        embedders = tuple(_deserialize_embedding(d) for d in embedder_dicts)
-        extractors = tuple(_deserialize_extractor(d) for d in extractor_dicts)
-        tc = TaggingConfig(**tagging_dict)
-        ed = dict(export_dict)
-        ed["output_root"] = Path(ed["output_root"])
-        ec = ExportConfig(**ed)
-        proc = MusicProcess(
-            audio_file=Path(audio_path),
-            embedders=embedders,
-            extractors=extractors,
-            tagging_config=tc,
-            export_config=ec,
-            separator=separator,
-            tempo_model_path=tempo_model_path,
-        )
-        proc.process_file()
-        return (audio_path, True, None)
-    except Exception as e:  # noqa: BLE001
-        return (audio_path, False, f"{type(e).__name__}: {e}")
-
-
-# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -240,7 +152,6 @@ class MusicBatch:
         *,
         recursive: bool = True,
         extensions: Iterable[str] | None = None,
-        max_workers: int | None = None,
         tempo_model_path: Path | str | None = None,
     ) -> None:
         self.root = Path(audio_path)
@@ -253,7 +164,6 @@ class MusicBatch:
         self.separator = separator
         self.recursive = recursive
         self._extensions = frozenset(extensions) if extensions is not None else None
-        self.max_workers = max_workers
         self.tempo_model_path = Path(tempo_model_path) if tempo_model_path is not None else None
         self._paths: list[Path] | None = None
         self._failures: list[tuple[str, str]] = []
@@ -293,7 +203,6 @@ class MusicBatch:
             separator=self.separator,
             recursive=self.recursive,
             extensions=self._extensions,
-            max_workers=self.max_workers,
             tempo_model_path=self.tempo_model_path,
         )
         clone._paths = sorted(sample_audio_files(self.root, sample=n_or_ratio, extensions=self._extensions))
@@ -395,29 +304,11 @@ class MusicBatch:
                 self._key_analyse = None
 
             results: list[tuple[str, dict[str, Any] | None, str | None]] = []
-            if self._use_pool():
-                emb_d = [_serialize_embedding(e) for e in self.embedders]
-                ex_d = [_serialize_extractor(e) for e in self.extractors]
-                with ProcessPoolExecutor(max_workers=self._worker_count()) as pool:
-                    futs = [
-                        pool.submit(
-                            _worker_analyze_one,
-                            str(p),
-                            emb_d,
-                            ex_d,
-                            self.separator,
-                            str(self.tempo_model_path) if self.tempo_model_path else None,
-                        )
-                        for p in self.paths
-                    ]
-                    for fut in tqdm(as_completed(futs), total=len(futs), desc=f"Analyzing {norm_key}", unit="file"):
-                        results.append(fut.result())
-            else:
-                for p in tqdm(self.paths, desc=f"Analyzing {norm_key}", unit="file"):
-                    try:
-                        results.append((str(p), self._make_process(p).labels, None))
-                    except Exception as e:  # noqa: BLE001
-                        results.append((str(p), None, f"{type(e).__name__}: {e}"))
+            for p in tqdm(self.paths, desc=f"Analyzing {norm_key}", unit="file"):
+                try:
+                    results.append((str(p), self._make_process(p).labels, None))
+                except Exception as e:  # noqa: BLE001
+                    results.append((str(p), None, f"{type(e).__name__}: {e}"))
 
             rows = [_row_from_labels(path, labels, norm_key, error) for path, labels, error in results]
             columns: list[str] = []
@@ -442,7 +333,6 @@ class MusicBatch:
         Failures are logged and skipped; see ``self._failures`` afterwards.
         """
         report_compute_device()
-        print(f"musikalyze: batch workers: {self._worker_count()}")
         if folder is None:
             folder = self.export_config.output_root if self.export_config else self.root / "output"
         folder = Path(folder)
@@ -453,47 +343,18 @@ class MusicBatch:
 
         export_cfg = self._effective_export_config(folder)
         failures: list[tuple[str, str]] = []
-        if self._use_pool():
-            emb_d = [_serialize_embedding(e) for e in self.embedders]
-            ex_d = [_serialize_extractor(e) for e in self.extractors]
-            td = asdict(self.tagging_config)
-            ed = asdict(export_cfg)
-            ed["output_root"] = str(export_cfg.output_root)
-            with ProcessPoolExecutor(max_workers=self._worker_count()) as pool:
-                futs = [
-                    pool.submit(
-                        _worker_process_one,
-                        str(p),
-                        emb_d,
-                        ex_d,
-                        td,
-                        ed,
-                        self.separator,
-                        str(self.tempo_model_path) if self.tempo_model_path else None,
-                    )
-                    for p in self.paths
-                ]
-                for fut in tqdm(as_completed(futs), total=len(futs), desc="Exporting", unit="file"):
-                    path, ok, error = fut.result()
-                    if not ok:
-                        logger.warning("Export failed for %s: %s", path, error)
-                        failures.append((path, error or "unknown error"))
-        else:
-            bar = tqdm(total=len(self.paths), desc="Exporting", unit="file")
-            for p in self.paths:
-                try:
-                    self._make_process(p, export_config=export_cfg).process_file()
-                    self._remove_empty_parents(p)
-                except Exception as e:  # noqa: BLE001
-                    logger.warning("Export failed for %s: %s", p, e)
-                    failures.append((str(p), f"{type(e).__name__}: {e}"))
-                bar.update(1)
-                bar.set_postfix(failed=len(failures))
-            bar.close()
-
-        if export_cfg.delete_after:
-            for p in self.paths:
+        bar = tqdm(total=len(self.paths), desc="Exporting", unit="file")
+        for p in self.paths:
+            try:
+                self._make_process(p, export_config=export_cfg).process_file()
                 self._remove_empty_parents(p)
+            except Exception as e:  # noqa: BLE001
+                logger.warning("Export failed for %s: %s", p, e)
+                failures.append((str(p), f"{type(e).__name__}: {e}"))
+            bar.update(1)
+            bar.set_postfix(failed=len(failures))
+        bar.close()
+
         self._failures = failures
         if failures:
             logger.warning("%d/%d exports failed", len(failures), len(self.paths))
@@ -532,26 +393,6 @@ class MusicBatch:
 
     # -- internals ----------------------------------------------------------
 
-    def _worker_count(self) -> int:
-        """Return the stable batch worker count.
-
-        Essentia/TensorFlow models are not reliable when forked from a running
-        Python or notebook process. Batch execution is therefore deliberately
-        serial for now; ``max_workers`` is retained for configuration
-        compatibility and will emit a warning when a value above one is used.
-        """
-        if self.max_workers is not None and self.max_workers < 1:
-            raise ValueError("max_workers must be at least 1")
-        if self.max_workers is not None and self.max_workers > 1:
-            logger.warning(
-                "max_workers=%d is currently unsupported for Essentia/TensorFlow; "
-                "using one stable worker.",
-                self.max_workers,
-            )
-        return 1
-
-    def _use_pool(self) -> bool:
-        return self._worker_count() > 1
 
     def _make_process(self, audio_file: Path, export_config: ExportConfig | None = None) -> MusicProcess:
         kwargs: dict[str, Any] = {
