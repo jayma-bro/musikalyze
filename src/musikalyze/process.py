@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from dataclasses import fields
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 
-from musikalyze.audio_io import load_audio
 from musikalyze.analysis_ops import meta_key_base
+from musikalyze.audio_io import load_audio
 from musikalyze.config import (
     AnalysisResult,
     EmbeddingModel,
@@ -22,6 +21,7 @@ from musikalyze.export_ffmpeg import export_multiple_formats
 from musikalyze.lazy_engine import LazyMetaEngine
 from musikalyze.tagging import (
     apply_tagging_config,
+    copy_and_write_tags,
     file_meta_from_tags,
     merge_logical_tags_for_export,
     read_tags_raw,
@@ -33,10 +33,7 @@ from musikalyze.templates import build_format_mapping, extract_placeholder_keys,
 
 def _tagging_template_strings(cfg: TaggingConfig) -> list[str]:
     out: list[str] = []
-    for f in fields(cfg):
-        if f.name == "extra":
-            continue
-        v = getattr(cfg, f.name)
+    for v in cfg.tags.values():
         if isinstance(v, str):
             out.append(v)
     for v in cfg.extra.values():
@@ -188,11 +185,15 @@ class MusicProcess:
         raise AttributeError(f"{type(self).__name__!r} object has no attribute {name!r}")
 
     def analyze_file(self) -> LazyMetaEngine:
-        """Load audio if needed, then initialize engine."""
+        """Load audio and compute each embedding at most once."""
 
         if self._audio_mono is None:
             self.load_audio()
-        return self._engine()
+        engine = self._engine()
+        if not self._embeddings_ready:
+            engine.compute_all_embeddings()
+            self._embeddings_ready = True
+        return engine
 
     def tag_file(self) -> dict[str, str]:
         if not self._tags_raw:
@@ -215,6 +216,16 @@ class MusicProcess:
         meta = self._engine().build_flat_meta(keys)
         meta.update(file_meta_from_tags(self._tags_raw, keys))
         merged = merge_logical_tags_for_export(self._tags_raw, self._tags_resolved)
+        if self.export_config.retag:
+            from musikalyze.export_ffmpeg import build_output_path
+            destination = self.export_config.output_root / build_output_path(
+                self.export_config.path_template,
+                merged,
+                meta,
+                self.audio_path.suffix.lstrip("."),
+                sanitize=self.export_config.sanitize_paths,
+            )
+            return [self.export_tags_only(destination)]
         return export_multiple_formats(
             self.audio_path,
             self.export_config.output_root,
@@ -239,7 +250,10 @@ class MusicProcess:
             self.analyze_file()
         
         target = output_path or self.audio_path
-        write_tags_to_file_safe(target, self._tags_resolved)
+        if target.resolve() == self.audio_path.resolve():
+            write_tags_to_file_safe(target, self._tags_resolved)
+        else:
+            copy_and_write_tags(self.audio_path, target, self._tags_resolved)
         return target
 
     def process_file(self) -> tuple[LazyMetaEngine | None, dict[str, str], list[Path] | None]:

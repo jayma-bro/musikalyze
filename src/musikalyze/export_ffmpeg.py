@@ -82,11 +82,12 @@ def export_audio(
         cmd.append("-y")
     else:
         cmd.append("-n")
-    cmd.extend(["-i", str(source.resolve())])
+    cmd.extend(["-i", str(source.resolve()), "-map", "0", "-map_metadata", "0"])
     for k, v in _ffmpeg_metadata_args(metadata).items():
         cmd.extend(["-metadata", f"{k}={v}"])
     acodec = opts.get("acodec", "libopus")
-    cmd.extend(["-c:a", acodec])
+    # Keep attached pictures when the target container supports them.
+    cmd.extend(["-c:v", "copy", "-c:a", acodec])
     if "audio_bitrate" in opts:
         cmd.extend(["-b:a", opts["audio_bitrate"]])
     if fmt.lower() == "wav":
@@ -129,6 +130,16 @@ def _ffmpeg_metadata_args(meta: Mapping[str, str]) -> dict[str, str]:
         v = meta.get(logical)
         if v is not None and str(v).strip() != "":
             out[ff] = str(v)
+    # Custom tags and less common standard tags are passed through unchanged.
+    for logical, value in meta.items():
+        if (
+            logical not in key_map
+            and not str(logical).startswith("tag_")
+            and value is not None
+            and str(value).strip()
+            and not isinstance(value, (dict, list))
+        ):
+            out[str(logical)] = str(value)
     return out
 
 

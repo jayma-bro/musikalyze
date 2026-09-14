@@ -363,17 +363,15 @@ class MusicBatch:
                         proc.analyze_file()
                     labels = proc.labels
                     row = {"_path": str(p)}
-                    for k in key:
-                        if k in labels:
-                            row[k] = labels[k]
-                        else:
-                            row[k] = None
+                    for requested in key:
+                        normalized = requested if requested.startswith(("tag_", "meta")) else f"meta_{requested}"
+                        row[requested] = labels.get(normalized)
                     rows.append(row)
                 except Exception as e:
                     logger.warning("Analysis failed for %s: %s", p, e)
                     row = {"_path": str(p)}
-                    for k in key:
-                        row[k] = None
+                    for requested in key:
+                        row[requested] = None
                     row["error"] = str(e)
                     rows.append(row)
                 gc.collect()

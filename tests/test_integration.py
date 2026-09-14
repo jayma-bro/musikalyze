@@ -35,7 +35,7 @@ _GENRE_EXTRACTOR = LabelExtractor(
     category="genre",
     task="multilabel",
     count=3,
-    thold=0.7,
+    thold=70,
     count_thold_policy="union",
     input_tensor="serving_default_model_Placeholder",
     output_tensor="PartitionedCall:0",
@@ -91,9 +91,11 @@ _INSTRUMENT_EXTRACTOR = LabelExtractor(
 )
 
 _TAGGING_CONFIG = TaggingConfig(
-    artist="{tag_artist}",
-    title="{tag_title}",
-    genre="{meta_genre}",
+    tags={
+        "artist": "{tag_artist}",
+        "title": "{tag_title}",
+        "genre": "{meta_genre}",
+    },
 )
 
 
@@ -342,14 +344,14 @@ class TestConfigJson:
                     category=data.get("category", "other"),
                     task=data.get("task", "classification"),
                     count=data.get("count", 1),
-                    thold=data.get("thold", 1.0),
+                    thold=data.get("thold", 100),
                     count_thold_policy=data.get("count_thold_policy", "intersection"),
                     output_tensor=data.get("output_tensor", "model/Sigmoid"),
                     input_tensor=data.get("input_tensor", "model/Placeholder"),
                 )
             )
         tagging_cfg = cfg.get("tagging_config", {})
-        tagging = TaggingConfig(**{k: v for k, v in tagging_cfg.items() if v is not None})
+        tagging = TaggingConfig(**{k: v for k, v in tagging_cfg.items() if k in ("tags", "separator", "extra")})
         export_cfg_data = cfg.get("export_config", {})
         from musikalyze.config import ExportConfig
         export_cfg = ExportConfig(

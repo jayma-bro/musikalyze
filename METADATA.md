@@ -1,219 +1,386 @@
-# Metadata Tags
+# Métadonnées et tagging
 
-This document lists all editable tags supported by musikalyze, including both file tags (`tag_*`) and analysis metadata (`meta_*`).
+Ce document décrit les noms utilisés par `musikalyze` pour lire, analyser et écrire les métadonnées audio.
 
-## File Tags (tag_*)
+## Règle fondamentale : `tag_*` et `meta_*`
 
-These tags are read from the audio file's existing metadata or written via templates:
+Les deux préfixes ont des origines différentes.
 
-| Tag | Description | Example |
-|-----|-------------|---------|
-| `tag_artist` | Artist name | "Radiohead" |
-| `tag_title` | Track title | "Creep" |
-| `tag_album` | Album name | "Pablo Honey" |
-| `tag_date` | Release date | "1993" |
-| `tag_tracknumber` | Track number | "1" or "1/12" |
-| `tag_discnumber` | Disc number | "1" or "1/2" |
-| `tag_albumartist` | Album artist | "Radiohead" |
-| `tag_composer` | Composer | "Thom Yorke" |
-| `tag_comment` | Comment | "Remastered 2009" |
-| `tag_lyrics` | Lyrics | "Sometimes a gift..." |
-| `tag_copyright` | Copyright | "© 1993 EMI" |
-| `tag_publisher` | Publisher | "EMI Music Publishing" |
-| `tag_encodedby` | Encoding software | "FFmpeg 4.4" |
-| `tag_encoder` | Encoder | "opusenc" |
-| `tag_isrc` | ISRC code | "GBAAA9300123" |
-| `tag_language` | Primary language | "en" |
-| `tag_albumsort` | Album sort order | "Pablo Honey" |
-| `tag_artistsort` | Artist sort order | "Radiohead" |
-| `tag_titlesort` | Title sort order | "Creep" |
-| `tag_website` | Artist website | "https://radiohead.com" |
-| `tag_bpm` | Beats per minute | "140" |
-| `tag_mood` | Mood descriptor | "Melancholy" |
-| `tag_grouping` | Grouping/series | "Albums" |
-| `tag_key` | Musical key | "C#" |
-| `tag_tcop` | Track Commercial Orientation | "Commercial" |
+### `tag_*` : informations déjà présentes dans le fichier
 
-## Analysis Metadata (meta_*)
+Les tags du fichier original sont lus sans analyse audio et sont disponibles sous la forme :
 
-These tags are computed by musikalyze's analysis engines:
-
-### Genre Metadata
-
-| Tag | Description | Example |
-|-----|-------------|---------|
-| `meta_genre` | Primary genre | "Rock" |
-| `meta_genres` | All genres with scores | `{"Rock": 0.95, "Alternative": 0.87}` |
-| `meta_genres_str` | Genres as string | "Rock;Alternative" |
-| `meta_genre_dancehall` | Dancehall genre score | `0.87` |
-| `meta_genre_dub` | Dub genre score | `0.75` |
-
-### Mood Metadata
-
-| Tag | Description | Example |
-|-----|-------------|---------|
-| `meta_mood` | Primary mood | "Happy" |
-| `meta_moods` | All moods with scores | `{"Happy": 0.82, "Energetic": 0.76}` |
-| `meta_mood_str` | Moods as string | "Happy;Energetic" |
-| `meta_mood_happy` | Happy mood score | `0.82` |
-| `meta_mood_sad` | Sad mood score | `0.15` |
-
-### Classical/Technical Metadata
-
-| Tag | Description | Example |
-|-----|-------------|---------|
-| `meta_bpm` | Beats per minute | `120` |
-| `meta_key` | Musical key | "C#" |
-| `meta_scale` | Scale type | "Minor" |
-| `meta_rgain_gain` | ReplayGain track gain (dB) | `-5.2` |
-| `meta_rgain_peak` | ReplayGain peak value | `0.85` |
-| `meta_rgain_peak_dbfs` | ReplayGain peak in dBFS | `-1.4` |
-
-### Audio Feature Metadata
-
-| Tag | Description | Example |
-|-----|-------------|---------|
-| `meta_acousticness` | How acoustic a track is (0.0-1.0) | `0.85` |
-| `meta_danceability` | How suitable for dancing (0.0-1.0) | `0.75` |
-| `meta_energy` | Energy level (0.0-1.0) | `0.90` |
-| `meta_instrumentalness` | Instrumentalness score (0.0-1.0) | `0.30` |
-| `meta_liveness` | Detection of live performance (0.0-1.0) | `0.20` |
-| `meta_popularity` | Popularity score (0-100) | `75` |
-| `meta_speechiness` | Speechiness score (0.0-1.0) | `0.10` |
-| `meta_valence` | Musical positiveness (0.0-1.0) | `0.60` |
-| `meta_tempo` | Tempo in BPM | `120` |
-
-### Comprehensive Metadata
-
-| Tag | Description | Example |
-|-----|-------------|---------|
-| `meta_all` | All analysis results as dict | `{"meta_genre": {...}, ...}` |
-| `meta_all_pct` | All analysis results with percentages | `{"meta_genre": {...}, ...}` |
-| `meta_all_str` | All analysis results as JSON string | `"{...}"` |
-| `meta_label` | Primary label per extractor | `{"genre400": "Rock", ...}` |
-| `meta_label_pct` | Primary label with scores | `{"genre400": {"Rock": 0.95}, ...}` |
-| `meta_label_all` | All labels per extractor | `{"genre400": ["Rock", "Alternative"], ...}` |
-| `meta_label_all_pct` | All labels with scores | `{"genre400": {"Rock": 0.95, "Alternative": 0.87}, ...}` |
-| `metas` | All metadata values | `{"meta_genre": "Rock", ...}` |
-| `metas_pct` | All metadata with percentages | `{"meta_genre": {"Rock": 0.95}, ...}` |
-| `metas_all` | All metadata as nested dict | `{"genre": {...}, "mood": {...}, ...}` |
-| `metas_all_pct` | All metadata with percentages | `{"genre": {...}, "mood": {...}, ...}` |
-| `metas_label` | All labels as nested dict | `{"genre": {...}, "mood": {...}, ...}` |
-| `metas_label_pct` | All labels with percentages | `{"genre": {...}, "mood": {...}, ...}` |
-| `metas_label_all` | All labels (all scores) nested | `{"genre": {...}, "mood": {...}, ...}` |
-| `metas_label_all_pct` | All labels with all scores | `{"genre": {...}, "mood": {...}, ...}` |
-
-## ReplayGain Metadata from File Tags
-
-These are read from existing ReplayGain tags in the file:
-
-| Tag | Description | Example |
-|-----|-------------|---------|
-| `meta_replaygain_track` | Track ReplayGain | "-5.2 dB" |
-| `meta_replaygain_album` | Album ReplayGain | "-3.8 dB" |
-
-## Template Variables
-
-Templates use `str.format()` syntax with `tag_*` and `meta_*` prefixes:
-
-```
-# Path template
-{tag_artist}/{tag_album}/{tag_tracknumber:02d} - {tag_title}.{ext}
-
-# Tagging template
-{tag_artist} - {tag_title} ({meta_genre})
+```text
+tag_artist
+tag_title
+tag_album
+tag_genre
+tag_date
+tag_tracknumber
+tag_discnumber
+tag_albumartist
+tag_composer
+tag_comment
+tag_lyrics
+tag_copyright
+tag_publisher
+tag_encodedby
+tag_encoder
+tag_isrc
+tag_language
+tag_albumsort
+tag_artistsort
+tag_titlesort
+tag_website
+tag_bpm
+tag_mood
+tag_grouping
+tag_key
+tag_replaygain_track_gain
+tag_replaygain_track_peak
+tag_replaygain_album_gain
+tag_replaygain_album_peak
 ```
 
-### Special Variables
+Ces valeurs peuvent servir à construire un chemin d’export ou à conserver les tags originaux.
 
-| Variable | Description |
-|----------|-------------|
-| `{ext}` | File extension (e.g., "opus", "mp3") |
-| `{tag_track_number}` | Track number as integer (extracted from `tag_tracknumber`) |
+### `meta_*` : résultats de l’analyse Musikalyze
 
-### Separator
+Ces valeurs sont calculées à partir de l’audio ou des extracteurs configurés :
 
-Templates support a configurable separator (default: `;`) for joining multiple values:
-
-```
-# With separator=";":
-{meta_genre} → "Rock;Alternative;Indie"
-
-# With separator=", ":
-{meta_genre} → "Rock, Alternative, Indie"
+```text
+meta_bpm
+meta_key
+meta_scale
+meta_rgain_gain
+meta_rgain_peak
+meta_rgain_peak_dbfs
 ```
 
-### Empty Value Handling
+Les valeurs `meta_rgain_*` sont différentes des tags `tag_replaygain_*` déjà stockés dans le fichier.
 
-When a template variable resolves to an empty value, it is silently omitted to avoid consecutive separators:
-
-```
-# Template: "{tag_artist};{tag_composer};{tag_title}"
-# If tag_composer is empty:
-# Result: "Radiohead;Creep" (not "Radiohead;;Creep")
-```
-
-## Genre Handling
-
-### Main Genre Extraction
-
-When a genre contains sub-genres (e.g., "Reggae---Dub"), only the first level is used as the main genre:
-
-```
-"Reggae---Dub" → "Reggae"
-"Electronic---Dub" → "Electronic"
-```
-
-### Genre Deduplication
-
-Duplicate genres are automatically removed. For example:
-
-```
-{"Reggae---Dub": 83, "Electronic---Dub": 80}
-→ Extract main genres: ["Reggae", "Electronic"]
-→ Deduplicate: ["Reggae", "Electronic"]
-→ Result: "Reggae;Electronic"
-```
-
-## Custom Tags
-
-You can define custom tags in the `extra` section of `TaggingConfig`:
+## `TaggingConfig`
 
 ```python
-tagging_config = TaggingConfig(
+TaggingConfig(
+    tags={
+        "genre": "{meta_genres}",
+        "key": "{meta_key}",
+        "bpm": "{meta_bpm}",
+        "copyright": "{meta_genres_main};{meta_scale}",
+    },
+    separator=";",
     extra={
-        "custom_field": "Custom: {tag_artist} - {tag_title}",
-        "analysis_note": "Genre: {meta_genre}",
-    }
+        "energy": "{meta_mood_energy_val_pct}",
+        "custom_tag": "{tag_artist} - {tag_title}",
+    },
 )
 ```
 
-## LabelExtractor Configuration
+### `tags`
 
-The `LabelExtractor.label_names` field accepts two formats:
+`tags` contient les tags standards écrits dans le fichier de sortie.
 
-### Sequence[str] (Classification/Multilabel)
+Clés standards prises en charge :
+
+```text
+artist
+title
+album
+genre
+date
+tracknumber
+discnumber
+composer
+albumartist
+comment
+lyrics
+copyright
+publisher
+encodedby
+encoder
+isrc
+language
+albumsort
+artistsort
+titlesort
+website
+bpm
+mood
+grouping
+key
+```
+
+Les espaces éventuels dans cette liste sont uniquement typographiques : les noms de clés ne contiennent pas d’espace.
+
+### `extra`
+
+`extra` permet de créer des tags supplémentaires sans modifier la liste des tags standards :
+
+```python
+extra={
+    "approachability": "{meta_mood_approachability_val_pct}",
+    "energy": "{meta_mood_energy_val_pct}",
+    "analysis_version": "musikalyze-0.6",
+}
+```
+
+Les tags personnalisés sont écrits selon les possibilités du format cible. Un format peut ne pas avoir de correspondance parfaite pour un tag donné.
+
+### Conservation des tags
+
+Par défaut, l’export conserve les tags présents dans le fichier original. Seuls les tags explicitement déclarés dans `tags` ou `extra` sont remplacés ou ajoutés.
+
+Un tag vide ou absent dans la configuration ne supprime pas automatiquement le tag original.
+
+## Genres
+
+Les labels de genre peuvent contenir un genre principal et un sous-genre :
+
+```text
+Reggae---Dub
+Electronic---Dub
+```
+
+Les labels sont triés par score et limités par les paramètres de `LabelExtractor` (`count`, `thold` et `count_thold_policy`).
+
+### Genre principal
+
+Le genre principal est uniquement la partie gauche du label complet ayant le score le plus élevé.
+
+Avec :
+
+```text
+Reggae---Dub : 83
+Electronic---Dub : 80
+```
+
+on obtient :
+
+```text
+meta_genres_main = "Reggae"
+```
+
+`Electronic` ne devient pas un second genre principal.
+
+### Sous-genres
+
+Les sous-genres sont les parties situées à droite de `---` parmi les labels sélectionnés :
+
+```text
+meta_genres_sub = "Dub"
+```
+
+Les doublons sont retirés en conservant le premier ordre d’apparition.
+
+Les alias suivants sont disponibles :
+
+```text
+meta_genre_main
+meta_genre_sub
+meta_genres_main
+meta_genres_sub
+```
+
+Les formes plurielles sont recommandées dans les templates généraux.
+
+## Extracteurs
+
+Pour un extracteur nommé `genre400` dans la catégorie `genre` :
+
+```text
+meta_genre_genre400
+meta_genre_genre400_val
+meta_genre_genre400_val_pct
+meta_genre_genre400_dict
+meta_genre_genre400_dict_pct
+meta_genre_genre400_all
+meta_genre_genre400_all_pct
+```
+
+Pour un extracteur nommé `happy` dans la catégorie `mood` :
+
+```text
+meta_mood_happy
+meta_mood_happy_val
+meta_mood_happy_val_pct
+meta_mood_happy_dict
+meta_mood_happy_dict_pct
+meta_mood_happy_all
+meta_mood_happy_all_pct
+```
+
+Les suffixes `_pct` contiennent des scores en pourcentage entier `0..100`.
+
+Les suffixes sans `_pct` contiennent les scores internes, généralement des flottants `0..1`.
+
+## Pourcentages et seuils
+
+Les paramètres configurés par l’utilisateur utilisent toujours des entiers `0..100`.
+
+### Multilabel
 
 ```python
 LabelExtractor(
     name="genre400",
-    label_names=["Rock", "Pop", "Jazz", ...],  # 400 genres
-    task="multilabel"
+    embedder_name="effnet",
+    graph_path=Path("models/genre.pb"),
+    labels_path=Path("models/genre.json"),
+    category="genre",
+    task="multilabel",
+    count=3,
+    thold=70,
+    count_thold_policy="union",
 )
 ```
 
-### Dict[str, tuple[float, float]] (Regression Threshold Mapping)
+### Régression avec labels par intervalles
 
 ```python
 LabelExtractor(
-    name="danceability",
+    name="aggressive",
+    embedder_name="effnet",
+    graph_path=Path("models/aggressive.pb"),
+    labels_path=Path("models/aggressive.json"),
+    category="mood",
+    task="regression",
     label_names={
-        "Not Danceable": (0.0, 0.3),
-        "Moderately Danceable": (0.3, 0.6),
-        "Very Danceable": (0.6, 1.0),
+        "agrsv_low": (0, 16),
+        "agrsv_midlow": (17, 44),
+        "agrsv_hi": (45, 100),
     },
-    task="regression"
 )
 ```
 
-When using the dict format, regression scores are mapped to label names based on threshold ranges. On overlap, the lower label wins. Exact boundary values round to the lower label.
+Le modèle produit par exemple `0.443`. Musikalyze le convertit en `44` avant comparaison.
+
+En cas de chevauchement, l’intervalle ayant la borne basse la plus faible est prioritaire. Si aucune plage ne correspond, aucun label n’est attribué.
+
+## Métadonnées classiques
+
+Les métadonnées classiques ne sont pas des prédictions de label. Elles sont calculées directement par Essentia et accessibles comme des valeurs simples :
+
+| Clé | Valeur |
+|---|---|
+| `meta_bpm` | BPM arrondi |
+| `meta_key` | Tonalité, par exemple `C#` |
+| `meta_scale` | Mode, par exemple `minor` |
+| `meta_rgain_gain` | Gain ReplayGain calculé |
+| `meta_rgain_peak` | Peak linéaire calculé |
+| `meta_rgain_peak_dbfs` | Peak en dBFS |
+
+Elles peuvent être utilisées directement dans `tags` :
+
+```python
+tags={
+    "bpm": "{meta_bpm}",
+    "key": "{meta_key}",
+    "copyright": "{meta_genres_main};{meta_scale}",
+}
+```
+
+## Templates et séparateurs
+
+Le séparateur par défaut est `;` :
+
+```python
+TaggingConfig(
+    separator=";",
+    tags={"genre": "{meta_genres}"},
+)
+```
+
+Une liste :
+
+```text
+["Rock", "Alternative", "Rock"]
+```
+
+devient :
+
+```text
+Rock;Alternative
+```
+
+Les valeurs vides sont supprimées :
+
+```text
+["acoustic", "", "sad"] → "acoustic;sad"
+```
+
+## Export et retag
+
+### Transcodage
+
+```python
+ExportConfig(
+    output_root=Path("output"),
+    formats="opus",
+    format_options={"opus": {"audio_bitrate": "256k"}},
+)
+```
+
+### Copie sans réencodage
+
+```python
+ExportConfig(
+    output_root=Path("retagged"),
+    retag=True,
+)
+```
+
+Dans ce mode :
+
+- le fichier original est copié ;
+- les tags sont modifiés sur la copie ;
+- le flux audio n’est pas réencodé ;
+- `formats` et `format_options` sont ignorés ;
+- l’artwork est conservé par la copie du fichier ;
+- les tags non configurés restent présents.
+
+## Formats
+
+Les noms logiques sont traduits vers les noms du conteneur :
+
+| Format | Famille de tags |
+|---|---|
+| MP3 | ID3v2 / EasyID3 / TXXX |
+| FLAC | Vorbis comments |
+| OGG | Vorbis comments |
+| Opus | Vorbis comments |
+| M4A | MP4/iTunes atoms |
+| WMA | ASF |
+
+`copyright` est le nom logique recommandé. `TCOP` est le nom d’une frame ID3 correspondant au copyright, pas un champ métier distinct.
+
+## Analyse batch
+
+```python
+df = batch.analyze("analyze")
+```
+
+La colonne `metas_all_pct` contient les métadonnées regroupées avec des scores en pourcentage. Elle peut être aplatie avec :
+
+```python
+df = batch.explode_metas(df, "metas_all_pct")
+```
+
+Pour une analyse ciblée :
+
+```python
+df = batch.analyze(["meta_genres", "meta_bpm", "tag_artist"])
+```
+
+## CLI
+
+```bash
+musikalyze ./library --config ./config.json export ./output
+```
+
+Pour un seul fichier :
+
+```bash
+musikalyze ./song.mp3 --config ./config.json export ./output
+```
+
+Voir `README.md` pour le schéma complet de `config.json` et les commandes `analyze` et `preview`.

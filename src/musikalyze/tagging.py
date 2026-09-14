@@ -1,319 +1,240 @@
-"""Read/write tags and apply templates."""
+"""Read, resolve and write logical audio metadata tags."""
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import shutil
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
 from mutagen import File as MutagenFile
+from mutagen.id3 import ID3, TXXX
 
+from musikalyze._id3_tag_map import _ID3_TAG_MAP
 from musikalyze.config import AnalysisResult, TaggingConfig
 from musikalyze.templates import build_format_mapping, resolve_template
 
+_EXTENSION_TO_TAG_KEYS = {
+    ".mp3": ("ID3v2",),
+    ".flac": ("Vorbis",),
+    ".ogg": ("Vorbis",),
+    ".opus": ("Vorbis",),
+    ".m4a": ("iTunes",),
+    ".wma": ("ASF",),
+}
 
-def _extract_main_genre(genre_string: str) -> str:
-    """Return the first-level category from a hyphen-separated genre string.
-    
-    e.g. "Reggae---Dub" -> "Reggae"
-    """
-    if not genre_string:
-        return genre_string
-    return genre_string.split("---")[0].split("-")[0].strip()
-
-
-def _deduplicate_genres(genres: list[str]) -> list[str]:
-    """Remove duplicate genres while preserving order.
-    
-    For genre strings like {"Reggae---Dub": 83, "Electronic---Dub": 80}:
-    - Extract main genres: ["Reggae", "Electronic"]
-    - Deduplicate and return
-    """
-    seen = set()
-    result = []
-    for g in genres:
-        main = _extract_main_genre(g) if "---" in g or "-" in g else g
-        if main and main not in seen:
-            seen.add(main)
-            result.append(main)
-    return result
-
-_LOGICAL_KEYS = (
-    "artist",
-    "title",
-    "album",
-    "genre",
-    "date",
-    "tracknumber",
-    "discnumber",
-    "composer",
-    "albumartist",
-    "comment",
-    "lyrics",
-    "copyright",
-    "publisher",
-    "encodedby",
-    "encoder",
-    "isrc",
-    "language",
-    "albumsort",
-    "artistsort",
-    "titlesort",
-    "website",
-    "bpm",
-    "mood",
-    "grouping",
-    "key",
-    "tcop",  # Track Commercial Orientation (MP3 tag)
-    "acousticness",
-    "danceability",
-    "energy",
-    "instrumentalness",
-    "liveness",
-    "popularity",
-    "speechiness",
-    "valence",
-    "tempo",
+# Logical names are deliberately independent from codec-specific names.
+_CORE_LOGICAL_KEYS = (
+    "artist", "title", "album", "genre", "date", "tracknumber", "discnumber",
+    "composer", "albumartist", "comment", "lyrics", "copyright", "publisher",
+    "encodedby", "encoder", "isrc", "language", "albumsort", "artistsort",
+    "titlesort", "website", "bpm", "mood", "grouping", "key", "tcop",
 )
-
+_AUDIO_FEATURE_KEYS = (
+    "acousticness", "danceability", "energy", "instrumentalness", "liveness",
+    "popularity", "speechiness", "valence", "tempo",
+)
+_LOGICAL_KEYS = _CORE_LOGICAL_KEYS + _AUDIO_FEATURE_KEYS
 _REPLAYGAIN_TAGS = (
-    "replaygain_track_gain",
-    "replaygain_track_peak",
-    "replaygain_album_gain",
-    "replaygain_album_peak",
-    "REPLAYGAIN_TRACK_GAIN",
-    "REPLAYGAIN_TRACK_PEAK",
-    "REPLAYGAIN_ALBUM_GAIN",
-    "REPLAYGAIN_ALBUM_PEAK",
+    "replaygain_track_gain", "replaygain_track_peak", "replaygain_album_gain",
+    "replaygain_album_peak", "REPLAYGAIN_TRACK_GAIN", "REPLAYGAIN_TRACK_PEAK",
+    "REPLAYGAIN_ALBUM_GAIN", "REPLAYGAIN_ALBUM_PEAK",
 )
 
 
-def _norm_text(val: Any) -> str | None:
-    if val is None:
+def _detect_tag_keys(path: Path) -> tuple[str, ...]:
+    return _EXTENSION_TO_TAG_KEYS.get(path.suffix.lower(), ("Vorbis",))
+
+
+def _get_tag_name(logical_key: str, tag_keys: Sequence[str]) -> str:
+    """Return a usable codec tag name, ignoring Picard explanatory suffixes."""
+    entry = _ID3_TAG_MAP.get(logical_key) or _ID3_TAG_MAP.get("tcop" if logical_key == "copyright" else logical_key)
+    if not entry:
+        return logical_key
+    for family in tag_keys:
+        raw = entry.get(family)
+        if raw:
+            return str(raw).splitlines()[0].split(" + ")[0].strip().split(" ")[0]
+    return logical_key
+
+
+def _norm_text(value: Any) -> str | None:
+    if value is None:
         return None
-    if isinstance(val, list) and val:
-        v0 = val[0]
-        if hasattr(v0, "text"):
-            t = v0.text
-            return str(t[0]).strip() if t else None
-        return str(v0).strip()
-    if hasattr(val, "text"):
-        t = val.text
-        return str(t[0]).strip() if t else None
-    s = str(val).strip()
-    return s or None
+    if isinstance(value, list):
+        value = value[0] if value else None
+    if value is None:
+        return None
+    if hasattr(value, "text"):
+        text = value.text
+        value = text[0] if text else None
+    result = str(value).strip() if value is not None else ""
+    return result or None
 
 
 def read_tags_raw(path: Path) -> dict[str, Any]:
-    """Read common and extended logical tags from the audio file (best effort)."""
-
-    f = MutagenFile(path)
-    if f is None:
+    """Read supported file tags into logical names without altering the file."""
+    audio = MutagenFile(path)
+    if audio is None or audio.tags is None:
         return {}
-
     out: dict[str, Any] = {}
-    if f.tags is None:
-        return {}
-
-    for key in _LOGICAL_KEYS:
-        try:
-            v = _norm_text(f.get(key))
-            if v:
-                out[key] = v
-        except (KeyError, TypeError, ValueError, AttributeError):
-            pass
-
-    for key in _REPLAYGAIN_TAGS:
-        try:
-            v = _norm_text(f.get(key))
-            if v:
-                lk = key.lower()
-                out[lk] = v
-        except (KeyError, TypeError, ValueError, AttributeError):
-            pass
-
-    if not out and hasattr(f.tags, "get"):
-        id3_map = {
-            "TIT2": "title",
-            "TPE1": "artist",
-            "TALB": "album",
-            "TCON": "genre",
-            "TDRC": "date",
-            "TRCK": "tracknumber",
-            "TPOS": "discnumber",
-            "TCOM": "composer",
-            "TPE2": "albumartist",
-            "COMM": "comment",
-            "TCOP": "copyright",
-            "TPUB": "publisher",
-            "TENC": "encodedby",
-            "TSRC": "isrc",
-            "TBPM": "bpm",
-            "TMOO": "mood",
-        }
-        for raw, logical in id3_map.items():
+    for logical in _CORE_LOGICAL_KEYS:
+        for candidate in (logical, _get_tag_name(logical, _detect_tag_keys(path))):
             try:
-                fr = f.tags.get(raw)
-                v = _norm_text(fr)
-                if v:
-                    out[logical] = v
+                value = _norm_text(audio.get(candidate) if hasattr(audio, "get") else None)
+                if value:
+                    out[logical] = value
+                    break
+                value = _norm_text(audio.tags.get(candidate))
+                if value:
+                    out[logical] = value
+                    break
             except (KeyError, TypeError, ValueError, AttributeError):
-                pass
-
-    return {k: v for k, v in out.items() if v is not None and str(v).strip() != ""}
+                continue
+    for raw in _REPLAYGAIN_TAGS:
+        try:
+            value = _norm_text(audio.get(raw))
+            if value:
+                out[raw.lower()] = value
+        except (KeyError, TypeError, ValueError, AttributeError):
+            continue
+    return out
 
 
 def tags_to_tag_prefix(flat: Mapping[str, Any]) -> dict[str, Any]:
-    m: dict[str, Any] = {}
-    for k, v in flat.items():
-        key = k if str(k).startswith("tag_") else f"tag_{k}"
-        m[key] = v
-    for k in ["tracknumber", "discnumber"]:
-        if f"tag_{k}" in m:
-            m[f"tag_{k}_f"] = format_nbr(flat[k])
-    return m
+    out = {k if str(k).startswith("tag_") else f"tag_{k}": v for k, v in flat.items()}
+    for key in ("tracknumber", "discnumber"):
+        if key in flat:
+            out[f"tag_{key}_f"] = format_nbr(flat[key])
+    return out
 
-def format_nbr(s: Any) -> str:
-    if type(s) == int:
-        s = str(s)
-    if "/" in s:
-        return s.split("/")[0]
-    s = s.lstrip("0")
-    if not s:
-        return ""
-    return s if len(s) > 1 else f"0{s}"
 
-def merge_logical_tags_for_export(
-    original: Mapping[str, Any],
-    resolved: Mapping[str, str],
-) -> dict[str, str]:
-    """
-    Start from original file tags, then overlay fields produced by ``TaggingConfig``.
+def format_nbr(value: Any) -> str:
+    text = str(value)
+    if "/" in text:
+        text = text.split("/", 1)[0]
+    text = text.lstrip("0")
+    return "" if not text else text if len(text) > 1 else f"0{text}"
 
-    Unmentioned fields keep their original values; only keys present in ``resolved`` override.
-    """
 
-    out: dict[str, str] = {}
-    for k, v in original.items():
-        if v is None:
+def _dedupe(value: Any, separator: str) -> Any:
+    if not isinstance(value, (list, tuple)):
+        return value
+    seen: set[str] = set()
+    result: list[Any] = []
+    for item in value:
+        text = str(item).strip()
+        if text and text not in seen:
+            seen.add(text)
+            result.append(item)
+    return separator.join(str(item) for item in result)
+
+
+def _extract_main_genre(value: str | None) -> str | None:
+    if value is None:
+        return None
+    return value.split("---", 1)[0].split("-", 1)[0].strip()
+
+
+def _deduplicate_genres(genres: list[str]) -> list[str]:
+    result: list[str] = []
+    for genre in genres:
+        main = _extract_main_genre(genre)
+        if main and main not in result:
+            result.append(main)
+    return result
+
+
+def _genre_parts(value: Any, separator: str) -> tuple[str, str]:
+    values = value if isinstance(value, (list, tuple)) else str(value).split(separator)
+    mains: list[str] = []
+    subs: list[str] = []
+    for item in values:
+        parts = [part.strip() for part in str(item).split("---") if part.strip()]
+        if not parts:
             continue
-        s = str(v).strip()
-        if s:
-            out[k] = s
-    for k, v in resolved.items():
-        if v is not None and str(v).strip():
-            out[k] = str(v).strip()
+        if parts[0] not in mains:
+            mains.append(parts[0])
+        if len(parts) > 1 and parts[1] not in subs:
+            subs.append(parts[1])
+    return separator.join(mains), separator.join(subs)
+
+
+def apply_tagging_config(tag_map: Mapping[str, Any], analysis: AnalysisResult | None, cfg: TaggingConfig) -> dict[str, str]:
+    meta = (analysis.meta if analysis else {}) or {}
+    mapping = build_format_mapping(tag_map, meta, ext=None)
+    resolved: dict[str, str] = {}
+    for logical, template in {**cfg.tags, **cfg.extra}.items():
+        if template is None:
+            continue
+        value = resolve_template(template, mapping, separator=cfg.separator)
+        if logical == "genre":
+            value = _dedupe(value.split(cfg.separator), cfg.separator)
+        else:
+            value = _dedupe(value.split(cfg.separator), cfg.separator)
+        if value:
+            resolved[logical] = str(value).strip()
+    return resolved
+
+
+def merge_logical_tags_for_export(original: Mapping[str, Any], resolved: Mapping[str, str]) -> dict[str, str]:
+    out = {str(k): str(v).strip() for k, v in original.items() if v is not None and str(v).strip()}
+    out.update({str(k): str(v).strip() for k, v in resolved.items() if v is not None and str(v).strip()})
     return out
 
 
 def file_meta_from_tags(tags_logical: Mapping[str, Any], keys_needed: set[str]) -> dict[str, Any]:
-    """Expose selected on-file values as ``meta_*`` for templates (e.g. ReplayGain)."""
-
     out: dict[str, Any] = {}
-    if not keys_needed:
-        return out
-    rg_track = tags_logical.get("replaygain_track_gain")
-    if rg_track and any(k.startswith("meta_replaygain") for k in keys_needed):
-        out["meta_replaygain_track"] = str(rg_track)
-    rg_album = tags_logical.get("replaygain_album_gain")
-    if rg_album and any(k == "meta_replaygain_album" or k.startswith("meta_replaygain_album") for k in keys_needed):
-        out["meta_replaygain_album"] = str(rg_album)
+    if any(key.startswith("meta_tag_replaygain") for key in keys_needed):
+        for name in ("replaygain_track_gain", "replaygain_album_gain"):
+            if name in tags_logical:
+                out[f"meta_tag_{name}"] = tags_logical[name]
     return out
 
 
-def apply_tagging_config(
-    tag_map: Mapping[str, Any],
-    analysis: AnalysisResult | None,
-    cfg: TaggingConfig,
-) -> dict[str, str]:
-    meta = (analysis.meta if analysis is not None else {}) or {}
-    base = build_format_mapping(tag_map, meta, ext=None)
-    resolved: dict[str, str] = {}
-
-    def one(template: str | None, key: str) -> None:
-        if template is None:
-            return
-        resolved[key] = resolve_template(template, base, separator=cfg.separator)
-
-    one(cfg.artist, "artist")
-    one(cfg.title, "title")
-    one(cfg.album, "album")
-    one(cfg.genre, "genre")
-    
-    # Apply genre deduplication
-    if "genre" in resolved and resolved["genre"]:
-        genre_val = resolved["genre"]
-        # Try to extract main genre and deduplicate
-        main_genre = _extract_main_genre(genre_val)
-        if main_genre:
-            resolved["genre"] = main_genre
-    else:
-        # Try to get genre from meta and deduplicate
-        genre_meta = meta.get("meta_genre") or meta.get("meta_mood_genre")
-        if genre_meta:
-            if isinstance(genre_meta, dict):
-                # It's a dict of {genre: score}
-                scores = sorted(genre_meta.items(), key=lambda x: x[1], reverse=True)
-                top_genres = [_extract_main_genre(g) for g, s in scores if s > 0]
-                deduped = _deduplicate_genres(top_genres)
-                if deduped:
-                    resolved["genre"] = cfg.separator.join(deduped)
-            elif isinstance(genre_meta, list):
-                genres = [_extract_main_genre(str(g)) for g in genre_meta if g]
-                deduped = _deduplicate_genres(genres)
-                if deduped:
-                    resolved["genre"] = cfg.separator.join(deduped)
-    
-    one(cfg.composer, "composer")
-    one(cfg.date, "date")
-    one(cfg.tracknumber, "tracknumber")
-    one(cfg.discnumber, "discnumber")
-    one(cfg.comment, "comment")
-    
-    # Handle audio feature tags (e.g., acousticness, danceability, etc.)
-    for key in ["key", "tcop", "acousticness", "danceability", "energy", "instrumentalness", "liveness", "popularity", "speechiness", "valence", "tempo"]:
-        if key in meta:
-            # If we have a meta value, resolve it with template
-            template = cfg.extra.get(key) or f"{{meta_{key}}}"
-            if template:
-                resolved[key] = resolve_template(template, base, separator=cfg.separator)
-    
-    # Handle other extra tags
-    for k, tmpl in cfg.extra.items():
-        one(tmpl, k)
-
-    return {k: v for k, v in resolved.items() if v is not None}
+def _write_one(audio: Any, path: Path, logical: str, value: str) -> None:
+    family = path.suffix.lower()
+    if logical == "tcop":
+        logical = "copyright"
+    if family == ".mp3":
+        easy_names = {"artist", "title", "album", "genre", "date", "tracknumber", "discnumber", "composer", "albumartist", "comment", "lyrics", "copyright", "publisher", "encodedby", "encoder", "isrc", "bpm", "mood", "grouping", "key"}
+        if logical in easy_names:
+            try:
+                audio[logical] = [value]
+                return
+            except (KeyError, TypeError, ValueError):
+                pass
+        raw = ID3(path)
+        raw.delall(f"TXXX:{logical}")
+        raw.add(TXXX(encoding=3, desc=logical, text=[value]))
+        raw.save()
+        return
+    try:
+        audio[logical] = [value]
+        return
+    except (KeyError, TypeError, ValueError):
+        pass
+    raw = _get_tag_name(logical, _detect_tag_keys(path))
+    audio.tags[raw] = [value]
 
 
 def write_tags_to_file(path: Path, tags: Mapping[str, str]) -> None:
-    f = MutagenFile(path, easy=True)
-    if f is None:
+    audio = MutagenFile(path, easy=True)
+    if audio is None:
         raise ValueError(f"Unsupported format for writing tags: {path}")
-    for k, v in tags.items():
-        if v is None or str(v).strip() == "":
-            continue
-        try:
-            f[k] = str(v)
-        except (KeyError, TypeError, ValueError):
-            try:
-                f.tags[k] = str(v)
-            except (KeyError, TypeError, AttributeError):
-                pass
-    f.save()
+    for logical, value in tags.items():
+        if value is not None and str(value).strip():
+            _write_one(audio, path, logical, str(value))
+    audio.save()
 
 
 def write_tags_to_file_safe(path: Path, tags: Mapping[str, str]) -> None:
-    f = MutagenFile(path, easy=True)
-    if f is None:
-        return
-    for k, v in tags.items():
-        if v is None or str(v).strip() == "":
-            continue
-        try:
-            f[k] = str(v)
-        except (KeyError, TypeError, ValueError):
-            continue
-    try:
-        f.save()
-    except (OSError, ValueError):
-        pass
+    write_tags_to_file(path, tags)
+
+
+def copy_and_write_tags(source: Path, destination: Path, tags: Mapping[str, str]) -> Path:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, destination)
+    write_tags_to_file(destination, tags)
+    return destination
+ 

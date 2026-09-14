@@ -25,10 +25,12 @@ def test_audio_feature_tags():
     
     # Create a test configuration that uses the new audio feature tags
     tagging_config = TaggingConfig(
-        artist="{tag_artist}",
-        title="{tag_title}",
-        album="{tag_album}",
-        genre="{meta_genre}",
+        tags={
+            "artist": "{tag_artist}",
+            "title": "{tag_title}",
+            "album": "{tag_album}",
+            "genre": "{meta_genre}",
+        },
         extra={
             "acousticness": "{meta_acousticness}",
             "danceability": "{meta_danceability}",

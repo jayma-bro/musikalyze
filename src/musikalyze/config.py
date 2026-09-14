@@ -56,8 +56,20 @@ class LabelExtractor:
 
     separator: str = ";"
     count: int = 1
-    thold: float = 1.0
+    # Public thresholds are percentages, from 0 to 100.
+    thold: int = 100
     count_thold_policy: Literal["intersection", "union"] = "intersection"
+
+    def __post_init__(self) -> None:
+        if not 0 <= self.thold <= 100:
+            raise ValueError("thold must be an integer percentage between 0 and 100")
+        if isinstance(self.label_names, dict):
+            for label, bounds in self.label_names.items():
+                if len(bounds) != 2 or not all(isinstance(v, int) for v in bounds):
+                    raise TypeError(f"Bounds for {label!r} must be a pair of integer percentages")
+                low, high = bounds
+                if not 0 <= low <= high <= 100:
+                    raise ValueError(f"Bounds for {label!r} must be within 0..100")
 
 @dataclass
 class PredictionRecord:
@@ -131,19 +143,17 @@ class PredictionRecord:
 
 @dataclass(slots=True)
 class TaggingConfig:
-    """Per-field templates using ``{tag_*}`` and ``{meta_*}`` (Python ``str.format`` syntax only)."""
+    """Explicit tag templates.
+
+    ``tags`` contains standard logical file tags and ``extra`` contains arbitrary
+    custom tags. An empty mapping means that the corresponding original tags are
+    left untouched during export.
+    """
 
     separator: str = ";"
-    artist: str | None = "{tag_artist}"
-    title: str | None = "{tag_title}"
-    album: str | None = "{tag_album}"
-    genre: str | None = "{meta_genre}"
-    composer: str | None = None
-    date: str | None = "{tag_date}"
-    tracknumber: str | None = "{tag_tracknumber}"
-    discnumber: str | None = "{tag_discnumber}"
-    comment: str | None = None
+    tags: dict[str, str | None] = field(default_factory=dict)
     extra: Mapping[str, str | None] = field(default_factory=dict)
+
 
 
 @dataclass(slots=True)
@@ -156,10 +166,16 @@ class ExportConfig:
     format_options: dict[str, dict[str, str]] = field(default_factory=dict)
     sanitize_paths: bool = True
     overwrite: bool = False
-    mode: Literal["transcode", "retag"] = "transcode"
+    retag: bool = False
+    # Deprecated spelling retained only to load existing serialized configs.
+    mode: Literal["transcode", "retag"] | None = field(default=None, repr=False)
     _template_warning: bool = field(default=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
+        if self.mode is not None:
+            self.retag = self.mode == "retag"
+        else:
+            self.mode = "retag" if self.retag else "transcode"
         if not re.search(r"\{(tag_|meta_)", self.path_template):
             object.__setattr__(self, "_template_warning", True)
 

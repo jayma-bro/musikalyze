@@ -47,6 +47,7 @@ class LazyMetaEngine:
         self._pred: dict[str, PredictionRecord] = {}
         self._audio_path: Path = audio_path
         self._flat_meta_cache: dict[str, Any] | None = None
+        self._classical_meta: dict[str, Any] = {}
         self._stereo_cache: tuple[Any, int] | None = None
 
     def cleanup(self) -> None:
@@ -57,6 +58,7 @@ class LazyMetaEngine:
         self._audio = None
         self._stereo_cache = None
         self._flat_meta_cache = None
+        self._classical_meta.clear()
         gc.collect()
 
     def __del__(self) -> None:
@@ -78,9 +80,9 @@ class LazyMetaEngine:
     def compute_all_embeddings(self) -> None:
         """Run every registered embedding model once (call from ``MusicProcess.analyze_file()``)."""
 
-        for name, model in self._embedders.items():
+        for name in self._embedders:
             if name not in self._emb:
-                self._emb[name] = self.compute_embedding(model)
+                self._emb[name] = self.compute_embedding(name)
 
     def compute_embedding(self, embedder_name: str) -> None:
         """Run a signe embedding model define by the name"""
@@ -184,14 +186,14 @@ class LazyMetaEngine:
         # Handle regression with threshold mapping (dict label_names)
         if isinstance(ex.label_names, dict) and pooled.size > 0:
             # Regression threshold mapping mode
-            score = round(pooled[0]*100, 2) if pooled.size > 0 else 0
+            score = round(float(pooled[0]) * 100) if pooled.size > 0 else 0
             thresholds: dict[str, tuple[int, int]] = ex.label_names
 
             # Find the label with matching range
             matching_labels = []
 
             # Check each label to see if score fits in its range
-            for label_name, (low, high) in thresholds.items():
+            for label_name, (low, high) in sorted(thresholds.items(), key=lambda item: item[1][0]):
                 if low <= score <= high:
                     matching_labels.append(label_name)
 
@@ -228,7 +230,8 @@ class LazyMetaEngine:
             top_label=[raw_labels[top_i]]
             top_score=[float(pooled[top_i])]
         elif ex.task == "multilabel":
-            thold_count = len([i for i in order if pooled[i] >= ex.thold])
+            threshold = ex.thold / 100.0
+            thold_count = len([i for i in order if pooled[i] >= threshold])
             idxs = max(ex.count, thold_count) if ex.count_thold_policy == "union" else min(ex.count, thold_count)
             top_order = order[:idxs]
             labels=[raw_labels[i] for i in order]
@@ -246,10 +249,13 @@ class LazyMetaEngine:
                 sep=ex.separator,
             )
 
-    def _ensure_classical_key(self, key: str | None) -> Any:
-        for pred in self._pred:
-            if self._pred[pred].category == "classical" and (key is None or key.startswith(meta_key_base(self._pred[pred]))):
-                return self._pred[pred].flat_meta_from_record
+    def _ensure_classical_key(self, key: str | None) -> dict[str, Any]:
+        requested = set(_CLASSICAL_KEYS) if key is None else {
+            name for name in _CLASSICAL_KEYS if key == name or key.startswith(name + "_")
+        }
+        missing = requested - self._classical_meta.keys()
+        if not missing:
+            return dict(self._classical_meta)
 
         pred_list = []
         if key is None or key.startswith("meta_bpm"):
@@ -300,19 +306,9 @@ class LazyMetaEngine:
                 "name": "rgain_peak_dbfs",
                 "labels": peak_dbfs,
             })
-        out = {}
         for item in pred_list:
-            self._pred[item["name"]] = PredictionRecord(
-                name=item["name"],
-                category="classical",
-                labels=[str(item["labels"])],
-                scores=[1.0],
-                top_label=[str(item["labels"])],
-                top_score=[1.0],
-                sep=""
-            )
-            out.update(self._pred[item["name"]].flat_meta_from_record)
-        return out
+            self._classical_meta[f"meta_{item['name']}"] = item["labels"]
+        return dict(self._classical_meta)
 
     def _needs_extractor(self, ex: LabelExtractor, key: str | None) -> bool:
         if key is None:
@@ -335,15 +331,16 @@ class LazyMetaEngine:
 
         out: dict[str, Any] = {}
         if key is None:
+            out.update(self._ensure_classical_key(None))
             self.compute_all_extractor()
             for pred in self._pred.values():
                 out.update(pred.flat_meta_from_record)
         else:
-            # classical keys (compute missing ones on demand)
-            self._ensure_classical_key(key)
-            for ck in _CLASSICAL_KEYS:
-                if key.startswith(ck) and ck in self._pred:
-                    out.update(self._pred[ck].flat_meta_from_record)
+            # Classical descriptors are scalar metadata, not predictions.
+            classical = self._ensure_classical_key(key)
+            for ck, value in classical.items():
+                if key == ck or key.startswith(ck + "_"):
+                    out[ck] = value
 
             # indivudual prediction
             for ex in self._extractors.values():
@@ -433,6 +430,26 @@ class LazyMetaEngine:
                     except TypeError as e:
                         print(f"Error for {base_suffix} : {e}")
                         continue
+        if meta_base == "meta_genres":
+            # The main genre is the main part of the single highest-scoring
+            # complete genre. Subgenres are collected from the selected labels.
+            ranked: list[tuple[float, str]] = []
+            for ex in extractors:
+                rec = self.ensure_prediction(ex.name)
+                ranked.extend(zip(rec.top_score, rec.top_label))
+            ranked.sort(key=lambda item: item[0], reverse=True)
+            if ranked:
+                main = ranked[0][1].split("---", 1)[0].strip()
+                subs: list[str] = []
+                for _, label in ranked:
+                    parts = label.split("---", 1)
+                    if len(parts) > 1 and parts[1].strip() not in subs:
+                        subs.append(parts[1].strip())
+                out["meta_genres_main"] = main
+                out["meta_genres_sub"] = self.sep.join(subs)
+                # Singular aliases are kept as the convenient template names.
+                out["meta_genre_main"] = main
+                out["meta_genre_sub"] = self.sep.join(subs)
         out.update(self._stringify(out))
         return out
 

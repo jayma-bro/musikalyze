@@ -5,6 +5,7 @@ from musikalyze.batch import (
     list_audio_files,
     sample_audio_files,
 )
+from musikalyze.visualizer import MusicEDA
 from musikalyze.config import (
     AnalysisResult,
     EmbeddingModel,
@@ -27,6 +28,7 @@ __all__ = [
     "ExportConfig",
     "LabelExtractor",
     "MusicBatch",
+    "MusicEDA",
     "MusicProcess",
     "PredictionError",
     "TaggingConfig",
@@ -37,7 +39,7 @@ __all__ = [
     "sample_audio_files",
 ]
 
-__version__ = "0.5.0"
+__version__ = "0.6.0"
 
 
 def __getattr__(name: str):
