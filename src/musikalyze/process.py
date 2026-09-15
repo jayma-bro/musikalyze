@@ -83,7 +83,7 @@ class MusicProcess:
         self._lazy_engine: LazyMetaEngine | None = None
         self._tags_raw: dict[str, Any] = {}
         self._tags_prefixed: dict[str, Any] = {}
-        self._tags_resolved: dict[str, str] = {}
+        self._tags_resolved: dict[str, str | list[str]] = {}
         self._meta_cache: dict[str, Any] | None = None
         self._embeddings_ready = False
 
@@ -96,7 +96,7 @@ class MusicProcess:
         return dict(self._tags_raw)
 
     @property
-    def tags_resolved(self) -> dict[str, str]:
+    def tags_resolved(self) -> dict[str, str | list[str]]:
         return dict(self._tags_resolved)
     
     @property
@@ -199,7 +199,7 @@ class MusicProcess:
             self._embeddings_ready = True
         return engine
 
-    def tag_file(self) -> dict[str, str]:
+    def tag_file(self) -> dict[str, str | list[str]]:
         if not self._tags_raw:
             self.read_tags()
         if not self._embeddings_ready:
@@ -220,7 +220,11 @@ class MusicProcess:
         keys = _collect_needed_meta_keys(self.tagging_config, self.export_config)
         meta = self._engine().build_flat_meta(keys)
         meta.update(file_meta_from_tags(self._tags_raw, keys))
-        merged = merge_logical_tags_for_export(self._tags_raw, self._tags_resolved)
+        merged = merge_logical_tags_for_export(
+            self._tags_raw,
+            self._tags_resolved,
+            preserve_unconfigured=self.tagging_config.preserve_unconfigured,
+        )
         if self.export_config.retag:
             from musikalyze.export_ffmpeg import build_output_path
             destination = self.export_config.output_root / build_output_path(
@@ -240,6 +244,8 @@ class MusicProcess:
                 meta,
                 self.export_config.format_options,
                 overwrite=self.export_config.overwrite,
+                multi_entry=self.tagging_config.multi_entry,
+                preserve_metadata=self.tagging_config.preserve_unconfigured,
             )
 
         if self.export_config.delete_after:
@@ -263,12 +269,21 @@ class MusicProcess:
         
         target = output_path or self.audio_path
         if target.resolve() == self.audio_path.resolve():
-            write_tags_to_file_safe(target, self._tags_resolved)
+            write_tags_to_file_safe(
+                target,
+                self._tags_resolved,
+                preserve_unconfigured=self.tagging_config.preserve_unconfigured,
+            )
         else:
-            copy_and_write_tags(self.audio_path, target, self._tags_resolved)
+            copy_and_write_tags(
+                self.audio_path,
+                target,
+                self._tags_resolved,
+                preserve_unconfigured=self.tagging_config.preserve_unconfigured,
+            )
         return target
 
-    def process_file(self) -> tuple[LazyMetaEngine | None, dict[str, str], list[Path] | None]:
+    def process_file(self) -> tuple[LazyMetaEngine | None, dict[str, str | list[str]], list[Path] | None]:
         self.read_tags()
         self.load_audio()
         eng = self.analyze_file()
@@ -295,7 +310,11 @@ class MusicProcess:
         meta.update(file_meta_from_tags(self._tags_raw, keys))
         return self.export_config.output_root / build_output_path(
             self.export_config.path_template,
-            merge_logical_tags_for_export(self._tags_raw, self._tags_resolved),
+            merge_logical_tags_for_export(
+                self._tags_raw,
+                self._tags_resolved,
+                preserve_unconfigured=self.tagging_config.preserve_unconfigured,
+            ),
             meta,
             ext,
         )

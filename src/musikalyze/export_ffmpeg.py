@@ -10,10 +10,11 @@ from typing import Any
 
 from mutagen import File as MutagenFile
 from mutagen.flac import Picture
-from mutagen.id3 import APIC, ID3, POPM
-from mutagen.mp4 import MP4FreeForm
+from mutagen.id3 import APIC, ID3, POPM, TBPM, TXXX
+from mutagen.mp4 import MP4Cover, MP4FreeForm
 
 from musikalyze.audio_io import FFMPEG_TIMEOUT
+from musikalyze.tagging import popm_to_stars, stars_to_popm
 from musikalyze.templates import (
     build_format_mapping,
     resolve_template,
@@ -81,9 +82,11 @@ def export_audio(
     dest: Path,
     fmt: str,
     options: dict[str, dict[str, str]],
-    metadata: Mapping[str, str],
+    metadata: Mapping[str, str | list[str]],
     *,
     overwrite: bool = False,
+    multi_entry: bool = True,
+    preserve_metadata: bool = True,
 ) -> None:
     """Transcode *source* audio to *dest* using ffmpeg.
     
@@ -103,14 +106,13 @@ def export_audio(
     else:
         cmd.append("-n")
     cmd.extend(["-i", str(source.resolve())])
-    # Opus/Ogg/FLAC store artwork as metadata, not as a copied video stream.
-    # MP3 and MP4 can keep an attached picture stream during transcoding.
-    if fmt.lower() in {"mp3", "m4a"}:
-        cmd.extend(["-map", "0", "-map_metadata", "0"])
-    else:
-        cmd.extend(["-map", "0:a:0", "-map_metadata", "0"])
-    for k, v in _ffmpeg_metadata_args(metadata).items():
-        cmd.extend(["-metadata", f"{k}={v}"])
+    # Export only the audio stream. Artwork is copied explicitly below so that
+    # attached-picture streams are not accidentally re-encoded or duplicated.
+    cmd.extend(["-map", "0:a:0", "-map_metadata", "0" if preserve_metadata else "-1"])
+    for k, value in _ffmpeg_metadata_args(metadata).items():
+        values = value if isinstance(value, list) and multi_entry else [value]
+        for item in values:
+            cmd.extend(["-metadata", f"{k}={item}"])
     acodec = opts.get("acodec", "libopus")
     if fmt.lower() in {"mp3", "m4a"}:
         cmd.extend(["-c:v", "copy"])
@@ -129,12 +131,15 @@ def export_audio(
         stderr = error.stderr.decode(errors="replace") if error.stderr else ""
         raise RuntimeError(f"ffmpeg export failed for {dest}:\n{stderr}") from error
     _copy_artwork(source, dest)
-    _copy_rating(source, dest, metadata)
+    _copy_rating(source, dest, metadata, preserve_metadata=preserve_metadata)
+    _write_format_specific_overrides(dest, fmt, metadata, multi_entry=multi_entry)
     _remove_redundant_codec_aliases(dest, fmt, metadata)
 
 
 def _rating_stars(value: Any) -> float | None:
     """Parse the public rating representation, expressed as 0..5 stars."""
+    if isinstance(value, list):
+        value = value[0] if value else None
     try:
         stars = float(str(value).strip().lower().removesuffix(" stars"))
     except (TypeError, ValueError):
@@ -152,19 +157,26 @@ def _source_popm(source: Path) -> list[POPM]:
     return []
 
 
-def _copy_rating(source: Path, destination: Path, metadata: Mapping[str, str]) -> None:
+def _copy_rating(
+    source: Path,
+    destination: Path,
+    metadata: Mapping[str, str | list[str]],
+    *,
+    preserve_metadata: bool = True,
+) -> None:
     """Map MP3 POPM ratings to the target container's rating convention.
 
-    MP3 uses POPM's 0..255 byte scale. Vorbis-family containers use
-    ``RATING:<email>`` with a 0..1 value. For formats without an established
-    portable equivalent, a freeform ``rating`` value in stars is retained.
+    MP3 uses POPM's 0..255 byte scale. Vorbis-family containers use the
+    generic ``Rating`` field with a 0..100 score. Legacy ``RATING:<email>``
+    fields are removed from the output to avoid conflicting ratings.
     """
-    source_frames = _source_popm(source)
+    source_frames = _source_popm(source) if preserve_metadata else []
     configured = _rating_stars(metadata.get("rating")) if "rating" in metadata else None
     if not source_frames and configured is None:
         return
 
-    stars = configured if configured is not None else source_frames[0].rating * 5.0 / 255.0
+    stars = configured if configured is not None else popm_to_stars(source_frames[0].rating)
+    stars = min(5.0, max(0.0, stars))
     destination_format = destination.suffix.lower()
     try:
         target = MutagenFile(destination)
@@ -177,9 +189,9 @@ def _copy_rating(source: Path, destination: Path, metadata: Mapping[str, str]) -
                 tags = target.tags
             for frame in tags.getall("POPM"):
                 tags.delall(f"POPM:{frame.email}")
-            frames = source_frames or [POPM(email="user@email", rating=round(stars * 255 / 5), count=0)]
+            frames = source_frames or [POPM(email="user@email", rating=stars_to_popm(stars), count=0)]
             for frame in frames:
-                tags.add(POPM(email=frame.email, rating=round(stars * 255 / 5), count=frame.count))
+                tags.add(POPM(email=frame.email, rating=stars_to_popm(stars), count=getattr(frame, "count", 0)))
         elif destination_format in {".opus", ".ogg", ".flac"}:
             tags = target.tags
             if tags is None:
@@ -188,10 +200,10 @@ def _copy_rating(source: Path, destination: Path, metadata: Mapping[str, str]) -
             for key in list(tags.keys()):
                 if str(key).upper().startswith("RATING"):
                     del tags[key]
-            frames = source_frames or [POPM(email="user@email", rating=0, count=0)]
-            for frame in frames:
-                email = frame.email or "user@email"
-                tags[f"RATING:{email}"] = [str(stars / 5.0)]
+            # AIMP and several players use the generic Vorbis Rating field
+            # with a 0..100 score (four stars = 80). Do not also write the
+            # legacy RATING:<email> form: two values could diverge later.
+            tags["Rating"] = [str(round(stars * 20))]
         elif destination_format == ".m4a":
             if target.tags is None:
                 target.add_tags()
@@ -209,15 +221,9 @@ def _copy_rating(source: Path, destination: Path, metadata: Mapping[str, str]) -
         return
 
 
-def _remove_redundant_codec_aliases(destination: Path, fmt: str, metadata: Mapping[str, str]) -> None:
-    """Remove raw ID3 aliases that ffmpeg may copy beside canonical Vorbis tags.
-
-    For example, an MP3 ``TBPM`` frame can survive metadata mapping as a literal
-    ``TBPM`` Vorbis comment while the canonical ``bpm`` comment is also written.
-    ``TBPM`` and ``bpm`` represent the same logical field, so keeping both would
-    expose stale values to tag readers. Other unknown tags remain untouched.
-    """
-    if fmt.lower() in {"mp3", "m4a"} or "bpm" not in metadata:
+def _remove_redundant_codec_aliases(destination: Path, fmt: str, metadata: Mapping[str, str | list[str]]) -> None:
+    """Remove copied aliases only where they are not canonical for the target."""
+    if "bpm" not in metadata or fmt.lower() == "mp3":
         return
     try:
         audio = MutagenFile(destination)
@@ -231,51 +237,176 @@ def _remove_redundant_codec_aliases(destination: Path, fmt: str, metadata: Mappi
         return
 
 
-def _copy_artwork(source: Path, destination: Path) -> None:
-    """Copy embedded artwork through the target container's metadata system."""
-    try:
-        source_file = MutagenFile(source)
-        destination_file = MutagenFile(destination)
-        if source_file is None or destination_file is None or source_file.tags is None:
-            return
-
-        source_tags = source_file.tags
-        destination_tags = destination_file.tags
-        if destination_tags is None:
-            destination_file.add_tags()
-            destination_tags = destination_file.tags
-
-        apic_frames = [frame for frame in source_tags.values() if isinstance(frame, APIC)]
-        if apic_frames and hasattr(destination_tags, "add"):
-            for frame in apic_frames:
-                destination_tags.add(frame)
-        elif apic_frames and destination_tags is not None:
-            frame = apic_frames[0]
+def _picture_from_source(source: Path) -> list[Picture]:
+    """Extract all embedded images into the common FLAC Picture representation."""
+    audio = MutagenFile(source)
+    if audio is None or audio.tags is None:
+        return []
+    if isinstance(audio.tags, ID3):
+        pictures: list[Picture] = []
+        for frame in audio.tags.getall("APIC"):
             picture = Picture()
-            picture.type = 3
+            picture.type = frame.type
             picture.mime = frame.mime
-            picture.desc = frame.desc or "Cover (front)"
+            picture.desc = frame.desc
             picture.data = frame.data
-            encoded = base64.b64encode(picture.write()).decode("ascii")
-            destination_tags["metadata_block_picture"] = [encoded]
-        elif "covr" in source_tags and "covr" in destination_tags:
-            destination_tags["covr"] = source_tags["covr"]
-        elif "covr" in source_tags and hasattr(destination_file, "__setitem__"):
-            destination_file["covr"] = source_tags["covr"]
-        elif hasattr(source_file, "pictures") and source_file.pictures:
-            picture = source_file.pictures[0]
-            if hasattr(destination_file, "add_picture"):
-                destination_file.add_picture(picture)
-            elif destination_tags is not None:
-                encoded = base64.b64encode(picture.write()).decode("ascii")
-                destination_tags["metadata_block_picture"] = [encoded]
-        destination_file.save()
+            pictures.append(picture)
+        return pictures
+    if hasattr(audio, "pictures") and audio.pictures:
+        return list(audio.pictures)
+    raw = audio.tags.get("metadata_block_picture")
+    if raw:
+        pictures: list[Picture] = []
+        values = raw if isinstance(raw, list) else [raw]
+        for encoded in values:
+            try:
+                pictures.append(Picture(base64.b64decode(encoded)))
+            except (TypeError, ValueError):
+                continue
+        return pictures
+    covers = audio.tags.get("covr")
+    if covers:
+        pictures = []
+        for cover in covers:
+            try:
+                data = bytes(cover)
+                mime = "image/png" if getattr(cover, "imageformat", 0) == 14 else "image/jpeg"
+                picture = Picture()
+                picture.type = 3
+                picture.mime = mime
+                picture.desc = "Cover (front)"
+                picture.data = data
+                pictures.append(picture)
+            except (TypeError, ValueError):
+                continue
+        return pictures
+    return []
+
+
+def _copy_artwork(source: Path, destination: Path) -> None:
+    """Copy artwork explicitly because FFmpeg does not map picture metadata reliably."""
+    try:
+        pictures = _picture_from_source(source)
+        if not pictures:
+            return
+        target = MutagenFile(destination)
+        if target is None:
+            return
+        suffix = destination.suffix.lower()
+        if suffix == ".mp3":
+            if target.tags is None:
+                target.add_tags()
+            for picture in pictures:
+                target.tags.add(APIC(encoding=3, mime=picture.mime, type=picture.type, desc=picture.desc, data=picture.data))
+        elif suffix == ".m4a":
+            if target.tags is None:
+                target.add_tags()
+            target.tags["covr"] = [MP4Cover(picture.data, imageformat=MP4Cover.FORMAT_PNG if picture.mime == "image/png" else MP4Cover.FORMAT_JPEG) for picture in pictures]
+        elif suffix == ".flac":
+            # FFmpeg may already have copied the source pictures as Vorbis
+            # comments. Replace them so every image is preserved exactly once.
+            target.clear_pictures()
+            for picture in pictures:
+                target.add_picture(picture)
+        elif suffix in {".ogg", ".opus"}:
+            if target.tags is None:
+                target.add_tags()
+            for key in list(target.tags):
+                if str(key).casefold() == "metadata_block_picture":
+                    del target.tags[key]
+            target.tags["metadata_block_picture"] = [base64.b64encode(picture.write()).decode("ascii") for picture in pictures]
+        else:
+            return
+        target.save()
     except (OSError, KeyError, TypeError, ValueError):
-        # Artwork support varies by container; audio export must still succeed.
+        # Unsupported artwork conversion must not make an otherwise valid export fail.
         return
 
 
-def _ffmpeg_metadata_args(meta: Mapping[str, str]) -> dict[str, str]:
+def _write_format_specific_overrides(
+    destination: Path,
+    fmt: str,
+    metadata: Mapping[str, str | list[str]],
+    *,
+    multi_entry: bool = True,
+) -> None:
+    """Write fields whose container spelling differs from FFmpeg's generic name."""
+    try:
+        target = MutagenFile(destination)
+        if target is None or target.tags is None:
+            return
+        suffix = fmt.lower().lstrip(".")
+        if suffix == "m4a":
+            for logical in ("replaygain_track_gain", "replaygain_track_peak"):
+                value = metadata.get(logical)
+                if value:
+                    value = value[0] if isinstance(value, list) else value
+                    target.tags[f"----:com.apple.iTunes:{logical}"] = [MP4FreeForm(str(value).encode("utf-8"))]
+            if metadata.get("tracknumber"):
+                track_value = metadata["tracknumber"]
+                if isinstance(track_value, list):
+                    track_value = track_value[0]
+                number = str(track_value).split("/", 1)[0].lstrip("0") or "0"
+                target.tags["trkn"] = [(int(number), 0)]
+        elif suffix == "mp3":
+            id3 = target.tags if isinstance(target.tags, ID3) else ID3(destination)
+            if metadata.get("bpm"):
+                bpm_value = metadata["bpm"]
+                if isinstance(bpm_value, list):
+                    bpm_value = bpm_value[0]
+                # TBPM is the canonical MP3 representation. Replace copied
+                # values rather than leaving a stale frame beside the update.
+                id3.delall("TBPM")
+                id3.add(TBPM(encoding=3, text=[str(bpm_value)]))
+            for logical in ("replaygain_track_gain", "replaygain_track_peak"):
+                value = metadata.get(logical)
+                if not value:
+                    continue
+                if isinstance(value, list):
+                    value = value[0]
+                for frame in list(id3.getall("TXXX")):
+                    if frame.desc and frame.desc.casefold() == logical.casefold():
+                        id3.delall(f"TXXX:{frame.desc}")
+                id3.add(TXXX(encoding=3, desc=logical, text=[str(value)]))
+            target.tags = id3
+        if suffix in {"ogg", "opus", "flac"}:
+            # FFmpeg can leave the source value as a second Vorbis comment.
+            # Remove case variants and write the conventional uppercase names;
+            # some readers (notably MediaInfo) only display those spellings.
+            vorbis_names = {
+                "genre": "GENRE",
+                "bpm": "BPM",
+                "tracknumber": "TRACKNUMBER",
+                "replaygain_track_gain": "REPLAYGAIN_TRACK_GAIN",
+                "replaygain_track_peak": "REPLAYGAIN_TRACK_PEAK",
+            }
+            for logical, canonical in vorbis_names.items():
+                value = metadata.get(logical)
+                if not value:
+                    continue
+                values = value if isinstance(value, list) and multi_entry else [value]
+                for existing in list(target.tags):
+                    if str(existing).casefold() == logical.casefold():
+                        del target.tags[existing]
+                target.tags[canonical] = [str(item) for item in values]
+            if multi_entry:
+                # FFmpeg's repeated -metadata options are not consistently
+                # preserved by every Vorbis muxer. Re-apply every configured
+                # list as one multi-valued comment after muxing.
+                for logical, value in metadata.items():
+                    if not isinstance(value, list):
+                        continue
+                    canonical = vorbis_names.get(logical, logical)
+                    for existing in list(target.tags):
+                        if str(existing).casefold() == str(logical).casefold():
+                            del target.tags[existing]
+                    target.tags[canonical] = [str(item) for item in value]
+        target.save()
+    except (OSError, KeyError, TypeError, ValueError):
+        return
+
+
+def _ffmpeg_metadata_args(meta: Mapping[str, str | list[str]]) -> dict[str, str | list[str]]:
     """Map logical tag keys to ffmpeg metadata keys.
     
     Known keys (``artist``, ``title``, ``album``, etc.) are translated to
@@ -303,11 +434,11 @@ def _ffmpeg_metadata_args(meta: Mapping[str, str]) -> dict[str, str]:
         "replaygain_track_gain": "REPLAYGAIN_TRACK_GAIN",
         "replaygain_album_gain": "REPLAYGAIN_ALBUM_GAIN",
     }
-    out: dict[str, str] = {}
+    out: dict[str, str | list[str]] = {}
     for logical, ff in key_map.items():
         v = meta.get(logical)
         if v is not None and str(v).strip() != "":
-            out[ff] = str(v)
+            out[ff] = v
     # Custom tags and less common standard tags are passed through unchanged.
     for logical, value in meta.items():
         if (
@@ -315,9 +446,10 @@ def _ffmpeg_metadata_args(meta: Mapping[str, str]) -> dict[str, str]:
             and not str(logical).startswith("tag_")
             and value is not None
             and str(value).strip()
-            and not isinstance(value, (dict, list))
+            and logical != "rating"
+            and not isinstance(value, dict)
         ):
-            out[str(logical)] = str(value)
+            out[str(logical)] = value
     return out
 
 
@@ -326,11 +458,13 @@ def export_multiple_formats(
     output_root: Path,
     path_template: str,
     formats: str | list[str],
-    resolved_tags: Mapping[str, str],
+    resolved_tags: Mapping[str, str | list[str]],
     meta_map: Mapping[str, Any],
     format_options: dict[str, dict[str, str]],
     *,
     overwrite: bool = False,
+    multi_entry: bool = True,
+    preserve_metadata: bool = True,
 ) -> list[Path]:
     """Transcode *source* to one or more formats under *output_root*.
     
@@ -356,6 +490,8 @@ def export_multiple_formats(
             format_options,
             resolved_tags,
             overwrite=overwrite,
+            multi_entry=multi_entry,
+            preserve_metadata=preserve_metadata,
         )
         out_paths.append(dest)
     return out_paths

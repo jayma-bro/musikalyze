@@ -140,8 +140,14 @@ class TaggingConfig:
     """
 
     separator: str = ";"
+    multi_entry: bool = True
+    preserve_unconfigured: bool = True
     tags: dict[str, str | None] = field(default_factory=dict)
     extra: Mapping[str, str | None] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not self.separator:
+            raise ValueError("separator must not be empty")
 
 
 

@@ -221,4 +221,4 @@ __marimo__/
 .continue
 .vscode
 tests/fixtures/
-demo/
+# demo/

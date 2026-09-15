@@ -20,6 +20,8 @@
   ],
   "tagging_config": {
     "separator": ";",
+    "multi_entry": true,
+    "preserve_unconfigured": true,
     "tags": {
       "genre": "{meta_genres}",
       "key": "{meta_key}",

@@ -7,6 +7,13 @@ import os
 
 os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
 
+# Initialise TensorFlow visibility/memory growth before Essentia imports any
+# TensorFlow-backed operators. This is especially important for the fresh
+# process started by the CLI (notebooks often configure it earlier).
+from musikalyze.runtime import configure_tensorflow_memory
+
+configure_tensorflow_memory()
+
 import essentia
 
 essentia.log.infoActive = False
@@ -50,7 +57,7 @@ __all__ = [
     "sample_audio_files",
 ]
 
-__version__ = "1.0.0"
+__version__ = "1.2.0"
 
 
 def __getattr__(name: str):

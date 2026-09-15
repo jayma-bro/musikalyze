@@ -13,7 +13,7 @@ provide:
 - batch processing, a DataFrame API and a command-line interface;
 - optional Plotly-based visualisation through `MusicEDA`.
 
-The current release is **1.0.0**.
+The current release is **1.2.0**.
 
 ## Installation
 
@@ -116,6 +116,7 @@ approachability = LabelExtractor(
 
 tagging = TaggingConfig(
     separator=";",
+    multi_entry=True,
     tags={
         "genre": "{meta_genres}",
         "mood": "{meta_moods}",
@@ -209,13 +210,18 @@ For example:
 ```
 
 `TaggingConfig.tags` contains standard logical tags. `TaggingConfig.extra`
-contains custom tags such as model scores. Lists are joined with the configured
-separator and duplicate or empty values are removed.
+contains custom tags such as model scores. Values are split on the configured
+separator, duplicate or empty entries are removed, and `multi_entry=True`
+(default) writes them as separate tag entries when the target format supports
+multiple values. Set `multi_entry=False` to write one separator-joined value.
 
 Exports preserve original metadata by default. Only tags explicitly declared
 in `tags` or `extra` are replaced or added. Artwork is preserved when the
 container supports it. Logical tag names are translated to the appropriate
-ID3, Vorbis, MP4 or ASF representation.
+ID3, Vorbis, MP4 or ASF representation. Ratings written to Vorbis-family
+containers include the generic `Rating=0..100` convention used by players
+such as AIMP. Legacy `RATING:<email>` values are read but not written, so two
+rating fields cannot diverge.
 
 Genre metadata follows the selected model scores. `meta_genres_main` contains
 the main part of the highest-scoring complete genre, while

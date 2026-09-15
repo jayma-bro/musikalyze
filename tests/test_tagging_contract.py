@@ -12,7 +12,14 @@ from musikalyze.config import (
     PredictionRecord,
     TaggingConfig,
 )
-from musikalyze.tagging import apply_tagging_config
+from musikalyze.tagging import (
+    _get_tag_name,
+    _norm_text,
+    apply_tagging_config,
+    merge_logical_tags_for_export,
+    popm_to_stars,
+    stars_to_popm,
+)
 
 
 def test_only_explicit_templates_are_resolved_and_lists_are_deduplicated():
@@ -29,7 +36,27 @@ def test_only_explicit_templates_are_resolved_and_lists_are_deduplicated():
         }),
         config,
     )
-    assert result == {"genre": "Rock;Pop", "key": "C#", "custom": "one;two"}
+    assert result == {"genre": ["Rock", "Pop"], "key": ["C#"], "custom": ["one", "two"]}
+
+
+def test_multi_entry_false_keeps_separator_joined_values():
+    config = TaggingConfig(
+        separator=";",
+        multi_entry=False,
+        tags={"mood": "{meta_scale};{meta_moods}"},
+    )
+    result = apply_tagging_config(
+        {}, AnalysisResult(meta={"meta_scale": "major", "meta_moods": ["happy", "energetic"]}), config
+    )
+    assert result == {"mood": "major;happy;energetic"}
+
+
+def test_multi_entry_splits_literal_separator_between_templates():
+    config = TaggingConfig(tags={"mood": "{meta_scale};{meta_moods}"})
+    result = apply_tagging_config(
+        {}, AnalysisResult(meta={"meta_scale": "major", "meta_moods": ["happy", "energetic"]}), config
+    )
+    assert result["mood"] == ["major", "happy", "energetic"]
 
 
 def test_classical_values_are_valid_template_inputs():
@@ -37,7 +64,7 @@ def test_classical_values_are_valid_template_inputs():
     result = apply_tagging_config(
         {}, AnalysisResult(meta={"meta_bpm": 120, "meta_rgain_gain": -5.2}), config
     )
-    assert result == {"bpm": "120", "gain": "-5.2"}
+    assert result == {"bpm": ["120"], "gain": ["-5.2"]}
 
 
 def test_percentage_configuration_is_integer_based():
@@ -66,6 +93,31 @@ def test_numpy_scores_and_label_lists_are_normalized():
     meta = record.flat_meta_from_record
     assert meta["meta_genre_genre400_main"] == ["Reggae"]
     assert meta["meta_genre_genre400_sub"] == ["Dub"]
+
+
+def test_popm_rating_uses_standard_discrete_star_values():
+    expected = {0: 0, 1: 1, 64: 2, 128: 3, 196: 4, 255: 5}
+    for raw, stars in expected.items():
+        assert popm_to_stars(raw) == stars
+        assert stars_to_popm(stars) == raw
+
+
+def test_format_specific_tag_values_are_normalized():
+    assert _norm_text((2, 0)) == "2"
+    assert _get_tag_name("replaygain_track_gain", ("iTunes",)) == (
+        "----:com.apple.iTunes:REPLAYGAIN_TRACK_GAIN"
+    )
+
+
+def test_unconfigured_tags_can_be_dropped_from_export():
+    original = {"artist": "Artist", "comment": "old", "genre": "Old"}
+    resolved = {"genre": ["New"]}
+    assert merge_logical_tags_for_export(original, resolved) == {
+        "artist": "Artist", "comment": "old", "genre": ["New"]
+    }
+    assert merge_logical_tags_for_export(
+        original, resolved, preserve_unconfigured=False
+    ) == {"genre": ["New"]}
 
 
 def test_retag_is_the_export_switch():

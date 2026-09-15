@@ -96,6 +96,7 @@ model values, normally floats in `0..1`.
 ```python
 TaggingConfig(
     separator=";",
+    multi_entry=True,
     tags={
         "genre": "{meta_genres}",
         "key": "{meta_key}",
@@ -111,10 +112,62 @@ TaggingConfig(
 
 - `tags` contains standard logical audio tags;
 - `extra` contains arbitrary custom tags;
-- `separator` joins lists and removes empty elements and duplicates;
+- `separator` separates values inside templates and removes empty elements and duplicates;
+- `multi_entry=True` (the default) writes list values as separate tag entries when
+  the target format supports them; `False` writes one separator-joined value;
+- `preserve_unconfigured=True` (the default) keeps every original tag that is not
+  mentioned in `tags` or `extra`; set it to `False` to export only configured
+  tags, while embedded artwork is still retained;
 - an empty or absent configured value does not automatically erase the source
   tag;
 - only keys explicitly configured in `tags` or `extra` are overwritten.
+
+### Editable logical tags
+
+The following standard logical tags can be configured in `TaggingConfig.tags`:
+
+| Logical key | Meaning |
+| --- | --- |
+| `artist` | Track artist |
+| `title` | Track title |
+| `album` | Album title |
+| `genre` | One or more genres |
+| `date` | Release or recording date |
+| `tracknumber` | Track number |
+| `discnumber` | Disc number |
+| `composer` | Composer |
+| `albumartist` | Album artist |
+| `comment` | Comment |
+| `lyrics` | Lyrics |
+| `copyright` | Copyright notice |
+| `publisher` | Publisher/label |
+| `encodedby` | Encoding application/user |
+| `encoder` | Encoder name |
+| `isrc` | International Standard Recording Code |
+| `language` | Language |
+| `albumsort`, `artistsort`, `titlesort` | Sort-order fields |
+| `website` | Related website |
+| `bpm` | Beats per minute |
+| `mood` | One or more mood labels |
+| `grouping` | Grouping/work field |
+| `key` | Musical key |
+| `rating` | Rating from 0 to 5 stars |
+| `replaygain_track_gain` | ReplayGain track gain |
+| `replaygain_track_peak` | ReplayGain track peak |
+| `replaygain_album_gain` | ReplayGain album gain |
+| `replaygain_album_peak` | ReplayGain album peak |
+
+`TaggingConfig.extra` can edit any additional custom tag, including model
+features such as `energy`, `danceability`, `acousticness` and
+`instrumentalness`. These names are written using the target container's
+custom metadata mechanism.
+
+The logical names are translated per format: for example, MP3 uses ID3
+frames such as `TPE1`, `TIT2`, `TCON`, `TBPM` and `TXXX`, Vorbis-family files
+use comments such as `ARTIST`, `TITLE`, `GENRE` and `REPLAYGAIN_TRACK_GAIN`,
+and M4A uses iTunes atoms such as `©ART`, `©nam`, `©gen` and freeform
+ReplayGain atoms. The original codec-specific spelling is preserved for tags
+that are not explicitly overwritten whenever the format supports it.
 
 Standard logical keys include `artist`, `title`, `album`, `genre`, `date`,
 `tracknumber`, `discnumber`, `composer`, `albumartist`, `comment`, `lyrics`,
@@ -243,12 +296,16 @@ The logical `rating` value is expressed as `0..5` stars:
 TaggingConfig(tags={"rating": "5"})
 ```
 
-musikalyze maps it to the target container when possible:
+musikalyze maps it to the target container when possible. For Vorbis-family
+containers it writes only the generic player form; for example, four stars
+becomes `Rating=80`. Legacy `RATING:<email>` fields are read for compatibility
+but are removed rather than written, preventing two ratings from diverging.
+
 
 | Format | Representation |
 |---|---|
-| MP3 | ID3 `POPM`, score `0..255` |
-| Opus/Ogg/FLAC | Vorbis `RATING:<email>`, score `0..1` |
+| MP3 | ID3 `POPM`, canonical values `0, 1, 64, 128, 196, 255` for `0..5` stars |
+| Opus/Ogg/FLAC | generic `Rating`, score `0..100` |
 | M4A | iTunes freeform rating, score `0..5` |
 | Other formats | readable text fallback where supported |
 
