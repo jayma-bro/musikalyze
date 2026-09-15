@@ -18,7 +18,18 @@ from musikalyze.analysis_ops import (
 
 @dataclass(frozen=True, slots=True)
 class EmbeddingModel:
-    """Embedding model (EffNet or MAEST)."""
+    """Describe an Essentia/TensorFlow embedding model.
+
+    Parameters
+    ----------
+    embedding_model:
+        Path to the model graph or model resource.
+    name:
+        Supported model family: ``"effnet"`` or ``"maest"``.
+    input_tensor, patch_size, patch_hop_size, batch_size:
+        Optional graph and MAEST processing settings. Leave them unset to use
+        the defaults expected by the model.
+    """
 
     embedding_model: Path
     name: Literal["effnet", "maest"] = "effnet"
@@ -72,7 +83,12 @@ class LabelExtractor:
 
 @dataclass
 class PredictionRecord:
-    """Information predicted by the extractor"""
+    """Store one extractor prediction and expose its flat metadata fields.
+
+    ``scores`` and ``top_score`` use model values in ``0..1``; the generated
+    ``*_pct`` fields expose the same values as integer percentages. Genre
+    records additionally expose deduplicated ``main`` and ``sub`` fields.
+    """
     name: str
     category: Literal["genre", "mood", "other"]
     labels: list[str]
@@ -83,6 +99,7 @@ class PredictionRecord:
 
     @property
     def flat_meta_from_record(self) -> dict[str, Any]:
+        """Return the prediction as template-friendly ``meta_*`` values."""
         base = meta_key_base(self)
 
         single_score = self.top_score[0] if len(self.top_score) == 1 else self.top_score
@@ -132,11 +149,23 @@ class PredictionRecord:
 
 @dataclass(slots=True)
 class TaggingConfig:
-    """Explicit tag templates.
+    """Configure metadata templates and preservation rules.
 
-    ``tags`` contains standard logical file tags and ``extra`` contains arbitrary
-    custom tags. An empty mapping means that the corresponding original tags are
-    left untouched during export.
+    Parameters
+    ----------
+    separator:
+        Delimiter used to split list values and remove empty entries.
+    multi_entry:
+        When ``True``, list values are written as separate fields whenever the
+        target format supports them. When ``False``, they are joined by
+        ``separator``.
+    preserve_unconfigured:
+        Keep original tags not mentioned in ``tags`` or ``extra``. Set to
+        ``False`` to export only configured metadata; artwork remains preserved.
+    tags:
+        Mapping of standard logical tag names to templates.
+    extra:
+        Mapping of arbitrary custom tag names to templates.
     """
 
     separator: str = ";"
@@ -153,7 +182,25 @@ class TaggingConfig:
 
 @dataclass(slots=True)
 class ExportConfig:
-    """Transcoded output and path template."""
+    """Define how analyzed files are written.
+
+    Parameters
+    ----------
+    output_root:
+        Destination directory.
+    formats:
+        One output format or a list of formats such as ``"opus"`` or ``"flac"``.
+    path_template:
+        ``tag_*``/``meta_*`` template used to build the relative output path.
+    format_options:
+        Codec-specific FFmpeg options, indexed by format.
+    overwrite:
+        Replace an existing destination when ``True``.
+    retag:
+        Copy the source and edit tags without re-encoding when ``True``.
+    delete_after:
+        Remove the source only after a successful exported copy.
+    """
 
     output_root: Path
     formats: str | list[str] = "opus"
@@ -178,6 +225,6 @@ class ExportConfig:
 
 @dataclass(slots=True)
 class AnalysisResult:
-    """Container for resolved metadata passed to tag templates."""
+    """Container for the flat metadata mapping used by tag templates."""
 
     meta: dict[str, Any] = field(default_factory=dict)

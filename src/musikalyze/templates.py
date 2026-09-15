@@ -12,7 +12,7 @@ _FORMAT_WITH_SPEC = re.compile(r"\{([^{}:]+):(.+?)\}")
 
 
 def extract_placeholder_keys(*templates: str) -> set[str]:
-    """Return field names used in ``str.format``-style templates."""
+    """Return placeholder field names used by one or more format templates."""
 
     keys: set[str] = set()
     for t in templates:
@@ -29,7 +29,12 @@ def build_format_mapping(
     ext: str | None = None,
     extra: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Build the mapping for ``str.format_map`` with ``tag_*`` and ``meta_*`` keys."""
+    """Build the placeholder mapping used by tag and path templates.
+
+    ``tag_map`` and ``meta_map`` are exposed under ``tag_*`` and ``meta_*``
+    names. ``ext`` supplies the output extension and ``extra`` adds explicit
+    custom fields without modifying either input mapping.
+    """
 
     out: dict[str, Any] = {}
     for k, v in tag_map.items():
@@ -54,7 +59,7 @@ def build_format_mapping(
 
 
 def _non_empty_values(mapping: Mapping[str, Any]) -> dict[str, Any]:
-    """Return a copy with ``None``-values removed and empty strings replaced with ``""``."""
+    """Return template values after removing ``None`` and empty list entries."""
     out: dict[str, Any] = {}
     for k, v in mapping.items():
         if v is None:
@@ -141,7 +146,12 @@ def sanitize_path_segment(segment: str, max_len: int = 200) -> str:
 
 
 def sanitize_relative_path(path_str: str) -> str:
-    """Sanitize every component and force a relative, portable path."""
+    """Sanitize each component and return a safe relative path.
+
+    Separators in the template remain directory separators, while unsafe
+    characters inside each component are replaced so metadata cannot create
+    unintended directories or traversal paths.
+    """
     parts = str(path_str).replace("\\", "/").split("/")
     safe_parts = [sanitize_path_segment(part) for part in parts if part]
     return "/".join(safe_parts) or "_"

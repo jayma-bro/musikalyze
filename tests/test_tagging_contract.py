@@ -104,6 +104,10 @@ def test_popm_rating_uses_standard_discrete_star_values():
 
 def test_format_specific_tag_values_are_normalized():
     assert _norm_text((2, 0)) == "2"
+    assert _get_tag_name("catalognumber", ("ID3v2",)) == "TXXX:CATALOGNUMBER"
+    assert _get_tag_name("catalognumber", ("Vorbis",)) == "CATALOGNUMBER"
+    assert _get_tag_name("catalognumber", ("iTunes",)) == "----:com.apple.iTunes:CATALOGNUMBER"
+    assert _get_tag_name("catalognumber", ("ASF",)) == "WM/CatalogNo"
     assert _get_tag_name("replaygain_track_gain", ("iTunes",)) == (
         "----:com.apple.iTunes:REPLAYGAIN_TRACK_GAIN"
     )

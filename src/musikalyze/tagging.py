@@ -29,7 +29,7 @@ _CORE_LOGICAL_KEYS = (
     "artist", "title", "album", "genre", "date", "tracknumber", "discnumber",
     "composer", "albumartist", "comment", "lyrics", "copyright", "publisher",
     "encodedby", "encoder", "isrc", "language", "albumsort", "artistsort",
-    "titlesort", "website", "bpm", "mood", "grouping", "key", "rating", "tcop",
+    "titlesort", "website", "bpm", "mood", "grouping", "key", "rating", "catalognumber", "tcop",
 )
 _AUDIO_FEATURE_KEYS = (
     "acousticness", "danceability", "energy", "instrumentalness", "liveness",
@@ -142,6 +142,16 @@ def read_tags_raw(path: Path) -> dict[str, Any]:
             if value:
                 out[logical] = value
 
+    if path.suffix.lower() == ".mp3" and isinstance(audio.tags, ID3):
+        # Some Picard/ID3 files use a COMM frame instead of the mapped TXXX
+        # frame for Catalog Number. Normalize both forms to one logical key.
+        for frame in audio.tags.getall("COMM"):
+            if frame.desc and frame.desc.casefold() == "catalog number":
+                value = _norm_text(frame.text)
+                if value:
+                    out["catalognumber"] = value
+                    break
+
     # POPM stores ratings as 0..255. Expose the public logical value as stars
     # in the 0..5 range; the original email/counter are preserved during export.
     if path.suffix.lower() == ".m4a":
@@ -183,6 +193,7 @@ def read_tags_raw(path: Path) -> dict[str, Any]:
 
 
 def tags_to_tag_prefix(flat: Mapping[str, Any]) -> dict[str, Any]:
+    """Prefix logical source tags with ``tag_`` for template resolution."""
     out = {k if str(k).startswith("tag_") else f"tag_{k}": v for k, v in flat.items()}
     for key in ("tracknumber", "discnumber"):
         if key in flat:
@@ -191,6 +202,14 @@ def tags_to_tag_prefix(flat: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def format_nbr(value: Any) -> str:
+    """Format a track/disc number as a two-digit value.
+
+    The first component of values such as ``"2/12"`` is used, and leading
+    zeroes are normalized before padding single-digit numbers. For a multi-entry
+    value, the first entry is used because a filename can contain one number.
+    """
+    if isinstance(value, (list, tuple)):
+        value = value[0] if value else ""
     text = str(value)
     if "/" in text:
         text = text.split("/", 1)[0]
@@ -252,6 +271,15 @@ def apply_tagging_config(
     analysis: AnalysisResult | None,
     cfg: TaggingConfig,
 ) -> dict[str, str | list[str]]:
+    """Resolve configured tag templates against source tags and analysis meta.
+
+    Empty values and duplicates are removed. Depending on ``cfg.multi_entry``,
+    each resolved field is returned as a list of entries or as one separator-
+    joined string; no file is modified by this function.
+
+    Parameters are the ``tag_*`` source mapping, optional analysis result, and
+    the :class:`TaggingConfig` that defines templates and separator behavior.
+    """
     meta = (analysis.meta if analysis else {}) or {}
     mapping = build_format_mapping(tag_map, meta, ext=None)
     resolved: dict[str, str | list[str]] = {}
@@ -271,6 +299,7 @@ def merge_logical_tags_for_export(
     *,
     preserve_unconfigured: bool = True,
 ) -> dict[str, str | list[str]]:
+    """Combine original and resolved tags according to preservation policy."""
     out: dict[str, str | list[str]] = {}
     if preserve_unconfigured:
         out.update({str(k): v for k, v in original.items() if v is not None and str(v).strip()})
@@ -322,6 +351,16 @@ def _write_one(audio: Any, path: Path, logical: str, value: str | list[str]) -> 
         audio.tags["trkn"] = [(int(number), 0)]
         return
     if family == ".mp3":
+        if logical == "catalognumber":
+            raw = ID3(path)
+            raw.delall("TXXX:CATALOGNUMBER")
+            for frame in list(raw.getall("COMM")):
+                if frame.desc and frame.desc.casefold() == "catalog number":
+                    raw.delall(f"COMM:{frame.desc}")
+            for item in values:
+                raw.add(TXXX(encoding=3, desc="CATALOGNUMBER", text=[item]))
+            raw.save()
+            return
         easy_names = {"artist", "title", "album", "genre", "date", "tracknumber", "discnumber", "composer", "albumartist", "comment", "lyrics", "copyright", "publisher", "encodedby", "encoder", "isrc", "bpm", "mood", "grouping", "key"}
         if logical in easy_names:
             try:
@@ -384,6 +423,12 @@ def write_tags_to_file(
     *,
     preserve_unconfigured: bool = True,
 ) -> None:
+    """Write logical tags with Mutagen, optionally clearing unconfigured fields.
+
+    ``path`` is modified in place. List values become multiple native entries
+    where supported, and ``preserve_unconfigured=False`` removes metadata while
+    retaining embedded artwork.
+    """
     if not preserve_unconfigured:
         _clear_tags_keep_artwork(path)
     audio = MutagenFile(path, easy=True)

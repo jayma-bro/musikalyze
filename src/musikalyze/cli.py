@@ -22,7 +22,12 @@ def _path(value: str | Path, base: Path) -> Path:
 
 
 def load_config(path: Path) -> tuple[list[EmbeddingModel], list[LabelExtractor], TaggingConfig, dict[str, Any]]:
-    """Load the public JSON configuration used by the CLI."""
+    """Load and resolve a CLI JSON configuration.
+
+    Relative model, tempo-model and output paths are resolved relative to the
+    configuration file. Returns the embedding models, label extractors,
+    ``TaggingConfig`` and runtime/export options used by :func:`main`.
+    """
     base = path.resolve().parent
     data = json.loads(path.read_text(encoding="utf-8"))
     embedders = []
@@ -85,6 +90,12 @@ def _make_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run the ``musikalyze`` command-line application.
+
+    ``argv`` may provide arguments explicitly for embedding or tests; when it
+    is ``None``, arguments are read from the process command line. The command
+    returns zero on success and a non-zero status when batch exports fail.
+    """
     parser = _make_parser()
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO, format="%(levelname)s: %(message)s")

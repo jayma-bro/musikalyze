@@ -12,7 +12,12 @@ def load_label_list(
     labels_path: Path,
     extractor_name: str | None = None,
 ) -> list[str]:
-    """Load label list from a JSON file (list of strings or {"classes": [...]})."""
+    """Load class labels from JSON.
+
+    ``labels_path`` may contain a plain string list or an object with a
+    ``classes`` list. Several common text encodings are tried; an invalid or
+    incompatible file raises a descriptive error mentioning ``extractor_name``.
+    """
     label = f' (extractor "{extractor_name}")' if extractor_name else ""
     for enc in ("utf-8", "utf-16-le", "utf-16-be", "latin-1"):
         try:
@@ -45,7 +50,11 @@ def load_label_list(
 
 
 def meta_key_base(obj: object) -> str:
-    """Compute the base metadata key (e.g. ``meta_genre_``) from a LabelExtractor."""
+    """Build the metadata namespace for an extractor.
+
+    Mood extractors use ``meta_mood_<name>``, genre extractors use
+    ``meta_genre_<name>``, and other categories use ``meta_<name>``.
+    """
     category = getattr(obj, "category", "other")
     name = getattr(obj, "name", "unknown")
     if category == "mood":
@@ -113,7 +122,11 @@ def main_sub_from_label(label: str, separators: tuple[str, ...]) -> tuple[str, s
 
 
 def merge_values(existing: list | dict | str | float, new: list | dict | str | float) -> list | dict:
-    """Merge grouped metadata values while preserving insertion order."""
+    """Merge scalar, list, dictionary or numeric metadata values.
+
+    Existing order is retained where possible; repeated list values are
+    deduplicated. This helper is used when grouped extractor results are built.
+    """
     if isinstance(new, (int, float)):
         if isinstance(existing, list):
             return existing + [new]
@@ -152,7 +165,10 @@ def stringify(dictionary: dict[str, Any]) -> dict[str, str]:
 
 
 def pct(value: Any) -> int | list[int]:
-    """Convert scalar or sequence scores to integer percentages."""
+    """Convert model scores from ``0..1`` floats to rounded ``0..100`` integers.
+
+    Scalars return one integer; iterables return a list with the same ordering.
+    """
     if isinstance(value, Real):
         return round(float(value) * 100)
     return [round(float(number) * 100) for number in value]

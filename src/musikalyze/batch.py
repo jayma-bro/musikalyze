@@ -43,7 +43,13 @@ def list_audio_files(
     recursive: bool = True,
     sort_paths: bool = True,
 ) -> list[Path]:
-    """List audio files under ``root``."""
+    """Return supported audio files below a directory.
+
+    Parameters are ``root`` (the directory), ``extensions`` (optional suffixes
+    with or without a leading dot), ``recursive`` (include subdirectories), and
+    ``sort_paths`` (return deterministic lexical order). Raises
+    :class:`NotADirectoryError` when ``root`` is not a directory.
+    """
 
     r = Path(root)
     if not r.is_dir():
@@ -71,7 +77,12 @@ def sample_audio_files(
     recursive: bool = True,
     sort_paths: bool = True,
 ) -> list[Path]:
-    """List a sample of audio files under ``root`` with sample as a ratio if 0<sample<1 or a sample."""
+    """Return a random sample of audio paths.
+
+    ``sample=0`` returns every file; ``0 < sample < 1`` is interpreted as a
+    fraction of the library; values ``>= 1`` are interpreted as an item count.
+    The remaining arguments are forwarded to :func:`list_audio_files`.
+    """
     import random as rnd
 
     full_list = list_audio_files(root=root, extensions=extensions, recursive=recursive, sort_paths=sort_paths)
@@ -154,6 +165,13 @@ class MusicBatch:
         extensions: Iterable[str] | None = None,
         tempo_model_path: Path | str | None = None,
     ) -> None:
+        """Create a batch pipeline for the audio files below ``audio_path``.
+
+        ``embedders`` and ``extractors`` define analysis, while ``tagging_config``
+        and ``export_config`` control metadata and output. ``recursive`` and
+        ``extensions`` limit discovery; ``tempo_model_path`` optionally selects
+        an Essentia TempoCNN model. The path must be an existing directory.
+        """
         self.root = Path(audio_path)
         if not self.root.is_dir():
             raise NotADirectoryError(self.root)
@@ -224,16 +242,23 @@ class MusicBatch:
     # -- heavy pipeline -----------------------------------------------------
 
     def analyze(self, key: str | list[str] = "analyze") -> pd.DataFrame:
-        """Analyze every file and return a DataFrame with one row per file.
+        """Analyze every file and return one DataFrame row per file.
 
-        ``key`` can be:
-        - ``"analyze"``: returns a default DataFrame with filename, filepath, artist, album, title, track, and metas_all_pct
-        - A single metadata key (``meta_`` prefix added if missing; ``tag_*`` keys are read from file tags)
-        - A list of metadata keys: returns a DataFrame with those keys
+        ``key`` may be ``"analyze"`` for the complete result, one metadata key,
+        or a list of keys. Failures are recorded per file so one bad audio file
+        does not abort the whole batch. Nested score dictionaries are kept in
+        their own columns and can be flattened with :meth:`explode_metas`.
 
-        If the resolved value is a dict (e.g. ``"genre400_all"`` → ``{label: score}``), it is exploded into one column
-        per label; scalar keys yield a single column. Failed files produce a
-        row with ``None`` values and a logged warning.
+        ``key`` can be ``"analyze"`` for the default summary, one metadata
+        key, or a list of keys. A missing ``meta_`` prefix is added when needed;
+        ``tag_*`` keys read source tags. Dictionary results such as
+        ``"genre400_all"`` are expanded into one column per label. Failed files
+        produce a row with missing values and a logged warning.
+
+        Returns
+        -------
+        pandas.DataFrame
+            Sorted rows with an ``_path`` column and the requested metadata.
         """
         if not key:
             raise ValueError("key is required")
@@ -324,7 +349,12 @@ class MusicBatch:
             return df.sort_values("_path", kind="stable").reset_index(drop=True)
 
     def export(self, folder: Path | str | None = None) -> None:
-        """Export every file using :class:`ExportConfig`.
+        """Analyze and export every discovered file.
+
+        ``folder`` optionally overrides ``ExportConfig.output_root`` for this
+        call. Files are processed sequentially with a progress bar; failures
+        are logged and exposed through ``_failures`` instead of stopping the
+        batch. ``delete_after`` is honored only after a successful export.
 
         When ``folder`` is supplied it temporarily overrides
         ``ExportConfig.output_root`` for this call. The ``delete_after`` policy
@@ -360,10 +390,14 @@ class MusicBatch:
             logger.warning("%d/%d exports failed", len(failures), len(self.paths))
 
     def preview_paths(self, ext: str = "opus") -> list[Path]:
-        """Dry-run: resolved destination paths per file without writing anything.
+        """Resolve destination paths without analyzing or writing audio.
 
-        Requires ``export_config`` (the preview uses its ``output_root``).
+        ``ext`` is the output extension used for template resolution. An
+        ``ExportConfig`` is required because its path template and output root
+        define the result.
         """
+
+
         if self.export_config is None:
             raise ValueError("export_config is required for preview_paths()")
         out: list[Path] = []
@@ -426,16 +460,18 @@ class MusicBatch:
                 break
 
     def explode_metas(self, df: pd.DataFrame, column: str = "metas_all_pct") -> pd.DataFrame:
-        """Explode a DataFrame column containing nested meta dicts into flat columns.
-        
-        The ``metas_all_pct`` column from ``MusicBatch.analyze("analyze")`` contains
-        nested dictionaries. This method flattens them into individual columns.
-        
+        """Expand a nested metadata-dictionary column into numeric columns.
+
+        Parameters are the DataFrame returned by :meth:`analyze` and the name
+        of its dictionary column, which defaults to ``metas_all_pct``. The
+        original columns are preserved and missing dictionary values become
+        missing DataFrame cells.
+
         Example
         -------
         >>> df = batch.analyze("analyze")
         >>> df = batch.explode_metas(df, "metas_all_pct")
-        >>> df.columns  # now includes 'meta_genre_dancehall', 'meta_mood_happy', etc.
+        >>> df.columns  # now includes flattened genre and mood columns
         """
         if column not in df.columns:
             logger.warning("Column %r not found in DataFrame; returning as-is", column)

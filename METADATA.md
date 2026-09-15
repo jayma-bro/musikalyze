@@ -144,6 +144,7 @@ The following standard logical tags can be configured in `TaggingConfig.tags`:
 | `encodedby` | Encoding application/user |
 | `encoder` | Encoder name |
 | `isrc` | International Standard Recording Code |
+| `catalognumber` | Label/catalog release number |
 | `language` | Language |
 | `albumsort`, `artistsort`, `titlesort` | Sort-order fields |
 | `website` | Related website |
@@ -164,9 +165,10 @@ custom metadata mechanism.
 
 The logical names are translated per format: for example, MP3 uses ID3
 frames such as `TPE1`, `TIT2`, `TCON`, `TBPM` and `TXXX`, Vorbis-family files
-use comments such as `ARTIST`, `TITLE`, `GENRE` and `REPLAYGAIN_TRACK_GAIN`,
-and M4A uses iTunes atoms such as `©ART`, `©nam`, `©gen` and freeform
-ReplayGain atoms. The original codec-specific spelling is preserved for tags
+use comments such as `ARTIST`, `TITLE`, `GENRE`, `CATALOGNUMBER` and
+`REPLAYGAIN_TRACK_GAIN`, and M4A uses iTunes atoms such as `©ART`, `©nam`,
+`©gen` and freeform atoms such as `----:com.apple.iTunes:CATALOGNUMBER`
+and ReplayGain atoms. The original codec-specific spelling is preserved for tags
 that are not explicitly overwritten whenever the format supports it.
 
 Standard logical keys include `artist`, `title`, `album`, `genre`, `date`,

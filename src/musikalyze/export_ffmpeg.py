@@ -45,7 +45,10 @@ def logical_tags_to_tag_prefix(resolved: Mapping[str, str]) -> dict[str, Any]:
     out = {f"tag_{k}": v for k, v in resolved.items() if v is not None}
     for key in ("tracknumber", "discnumber"):
         if key in resolved:
-            text = str(resolved[key]).split("/", 1)[0].lstrip("0") or "0"
+            value = resolved[key]
+            if isinstance(value, (list, tuple)):
+                value = value[0] if value else ""
+            text = str(value).split("/", 1)[0].lstrip("0") or "0"
             out[f"tag_{key}_f"] = text if len(text) > 1 else f"0{text}"
     return out
 
@@ -88,11 +91,15 @@ def export_audio(
     multi_entry: bool = True,
     preserve_metadata: bool = True,
 ) -> None:
-    """Transcode *source* audio to *dest* using ffmpeg.
-    
-    Writes metadata tags and applies codec settings from *options*.
-    Raises :exc:`FileExistsError` if *dest* already exists and *overwrite* is ``False``.
-    Uses a timeout of :data:`~musikalyze.audio_io.FFMPEG_TIMEOUT` seconds.
+    """Transcode one audio file with FFmpeg and write its metadata.
+
+    ``source`` is decoded and written to ``dest`` in ``fmt``. ``options`` holds
+    format-specific codec settings, while ``metadata`` contains logical tags.
+    ``multi_entry`` controls whether list values become repeated native fields;
+    ``preserve_metadata`` controls copying of unconfigured source metadata.
+    Artwork is restored separately and is not re-encoded as video. Raises
+    :class:`FileExistsError` when the destination exists without ``overwrite``
+    and :class:`RuntimeError` when FFmpeg fails.
     """
 
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -337,6 +344,13 @@ def _write_format_specific_overrides(
             return
         suffix = fmt.lower().lstrip(".")
         if suffix == "m4a":
+            catalog = metadata.get("catalognumber")
+            if catalog:
+                if isinstance(catalog, list):
+                    catalog = catalog[0]
+                target.tags["----:com.apple.iTunes:CATALOGNUMBER"] = [
+                    MP4FreeForm(str(catalog).encode("utf-8"))
+                ]
             for logical in ("replaygain_track_gain", "replaygain_track_peak"):
                 value = metadata.get(logical)
                 if value:
@@ -350,6 +364,12 @@ def _write_format_specific_overrides(
                 target.tags["trkn"] = [(int(number), 0)]
         elif suffix == "mp3":
             id3 = target.tags if isinstance(target.tags, ID3) else ID3(destination)
+            catalog = metadata.get("catalognumber")
+            if catalog:
+                if isinstance(catalog, list):
+                    catalog = catalog[0]
+                id3.delall("TXXX:CATALOGNUMBER")
+                id3.add(TXXX(encoding=3, desc="CATALOGNUMBER", text=[str(catalog)]))
             if metadata.get("bpm"):
                 bpm_value = metadata["bpm"]
                 if isinstance(bpm_value, list):
@@ -379,6 +399,7 @@ def _write_format_specific_overrides(
                 "tracknumber": "TRACKNUMBER",
                 "replaygain_track_gain": "REPLAYGAIN_TRACK_GAIN",
                 "replaygain_track_peak": "REPLAYGAIN_TRACK_PEAK",
+                "catalognumber": "CATALOGNUMBER",
             }
             for logical, canonical in vorbis_names.items():
                 value = metadata.get(logical)
@@ -466,10 +487,12 @@ def export_multiple_formats(
     multi_entry: bool = True,
     preserve_metadata: bool = True,
 ) -> list[Path]:
-    """Transcode *source* to one or more formats under *output_root*.
-    
-    Resolves the path template for each format, creates destination paths, and
-    calls :func:`export_audio` for each.  Returns a list of the created paths.
+    """Export one source to each requested format.
+
+    The path template is resolved independently for every extension. ``resolved_tags``
+    supplies both filename values and metadata; ``format_options`` supplies
+    codec settings. ``multi_entry`` and ``preserve_metadata`` are forwarded to
+    :func:`export_audio`. Returns the destination paths in format order.
     """
 
     fmts = [formats] if isinstance(formats, str) else list(formats)

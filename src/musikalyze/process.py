@@ -54,9 +54,12 @@ def _collect_needed_meta_keys(
 
 
 class MusicProcess:
-    """
-    Load audio, compute all embeddings in ``analyze_file()``, then resolve labels and classical
-    descriptors lazily when templates or ``label()`` need them.
+    """Analyze, tag and export one audio file.
+
+    Embeddings are computed at most once. Label heads and classical descriptors
+    are evaluated lazily when a template or :meth:`label` requests them.
+    ``embedders`` and ``extractors`` configure analysis; ``TaggingConfig`` and
+    ``ExportConfig`` configure metadata and output behavior.
     """
 
     def __init__(
@@ -89,18 +92,22 @@ class MusicProcess:
 
     @property
     def audio_mono(self) -> Any:
+        """Return the decoded mono analysis signal, or ``None`` before loading."""
         return self._audio_mono
 
     @property
     def tags_original(self) -> dict[str, Any]:
+        """Return a copy of the source tags using logical names."""
         return dict(self._tags_raw)
 
     @property
     def tags_resolved(self) -> dict[str, str | list[str]]:
+        """Return a copy of tags resolved from the current ``TaggingConfig``."""
         return dict(self._tags_resolved)
     
     @property
     def labels(self) -> dict[str, Any]:
+        """Return source tags plus all lazily computed flat metadata."""
         out: dict[str, Any] = {}
         if not self._tags_raw:
             self.read_tags()
@@ -129,6 +136,7 @@ class MusicProcess:
         return self._lazy_engine
 
     def load_audio(self) -> Any:
+        """Decode the source to mono 16 kHz audio for Essentia."""
         self._audio_mono, _ = load_audio(self.audio_path, track="mono", sample_rate=16000, resample_quality=4)
         self._lazy_engine = None
         self._embeddings_ready = False
@@ -136,6 +144,7 @@ class MusicProcess:
         return self._audio_mono
 
     def read_tags(self) -> dict[str, Any]:
+        """Read source tags into logical names and ``tag_*`` template keys."""
         self._tags_raw = read_tags_raw(self.audio_path)
         self._tags_prefixed = tags_to_tag_prefix(self._tags_raw)
         return self._tags_raw
@@ -149,6 +158,12 @@ class MusicProcess:
         return meta
 
     def label(self, key: str | Sequence[str]) -> str | Sequence[Any]:
+        """Return one or more logical ``meta_*`` values.
+
+        ``key`` may be a single key or a sequence. The method accepts keys with
+        or without the ``meta_`` prefix and computes only the predictions needed
+        for the request.
+        """
         if isinstance(key, str):
             keys = [key]
             single = True
@@ -189,7 +204,11 @@ class MusicProcess:
         raise AttributeError(f"{type(self).__name__!r} object has no attribute {name!r}")
 
     def analyze_file(self) -> LazyMetaEngine:
-        """Load audio and compute each embedding at most once."""
+        """Load audio and compute each configured embedding at most once.
+
+        Returns the lazy metadata engine, which can subsequently evaluate label
+        heads and classical descriptors on demand.
+        """
 
         if self._audio_mono is None:
             self.load_audio()
@@ -200,6 +219,12 @@ class MusicProcess:
         return engine
 
     def tag_file(self) -> dict[str, str | list[str]]:
+        """Resolve configured tag templates without writing the source file.
+
+        The returned mapping contains only explicitly configured tags. List
+        values follow ``TaggingConfig.multi_entry`` and are deduplicated using
+        its separator.
+        """
         if not self._tags_raw:
             self.read_tags()
         if not self._embeddings_ready:
@@ -210,6 +235,13 @@ class MusicProcess:
         return self._tags_resolved
 
     def export_file(self) -> list[Path]:
+        """Export the file according to :class:`ExportConfig`.
+
+        Depending on ``ExportConfig.retag``, this either copies/transcodes to
+        the configured formats or copies the source without re-encoding and
+        edits its tags. Returns the created path(s); a source is deleted only
+        when ``delete_after`` is enabled and export succeeds.
+        """
         report_compute_device()
         if self.export_config is None:
             raise ValueError("export_config is required for export_file()")
@@ -257,7 +289,12 @@ class MusicProcess:
         return paths
 
     def export_tags_only(self, output_path: Path | None = None) -> Path:
-        """Write tags to the original file (or output_path) without re-encoding.
+        """Write tags without re-encoding the audio stream.
+
+        ``output_path`` selects a copied destination; when omitted, the source
+        file is edited in place. Original tags are preserved or cleared
+        according to ``TaggingConfig.preserve_unconfigured`` and artwork is
+        retained.
         
         Preserves embedded artwork and other non-template tags.
         Returns the path where tags were written.
@@ -284,6 +321,7 @@ class MusicProcess:
         return target
 
     def process_file(self) -> tuple[LazyMetaEngine | None, dict[str, str | list[str]], list[Path] | None]:
+        """Run the complete read, analysis, tagging and optional export pipeline."""
         self.read_tags()
         self.load_audio()
         eng = self.analyze_file()
@@ -294,6 +332,7 @@ class MusicProcess:
         return eng, tr, paths
 
     def preview_path(self, ext: str = "opus") -> Path:
+        """Return the destination path that an export would use for ``ext``."""
         if self.export_config is None:
             raise ValueError("export_config is required")
         if self._audio_mono is None:
@@ -320,8 +359,12 @@ class MusicProcess:
         )
 
     def analyze(self, key: str | list[str] | None = None) -> dict[str, Any] | pd.DataFrame:
-        """
-        Return analysis results in a standardized format.
+        """Return analysis results in a standardized format.
+
+        ``key=None`` returns all flat metadata. A string or list requests only
+        selected keys; ``"analyze"`` returns the complete label mapping. The
+        result is a dictionary for one file and a DataFrame-compatible mapping
+        for requested grouped results.
         
         If key is "analyze", returns a DataFrame with main tags, filename, path, and metas_all_pct.
         If key is a list of keys, returns a DataFrame with those keys.

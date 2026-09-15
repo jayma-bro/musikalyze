@@ -4,7 +4,10 @@ from __future__ import annotations
 
 
 def compute_device() -> str:
-    """Return the device visible to the TensorFlow runtime.
+    """Return whether TensorFlow currently sees a GPU or only the CPU.
+
+    This reports runtime visibility, not a guarantee that every Essentia
+    operation will be placed on the GPU.
 
     This reports visibility, not a per-operation placement guarantee. The
     latter depends on the concrete Essentia graph and TensorFlow device
@@ -23,7 +26,10 @@ def compute_device() -> str:
 
 
 def configure_tensorflow_memory() -> str:
-    """Enable progressive GPU allocation before the first TensorFlow model.
+    """Enable progressive GPU memory allocation and return visibility status.
+
+    Configuration must happen before TensorFlow initializes; if it is already
+    initialized, memory-growth changes may be ignored by TensorFlow.
 
     TensorFlow otherwise may reserve most or all VRAM immediately. Memory
     growth must be configured before the runtime initializes; if a notebook
@@ -46,7 +52,7 @@ def configure_tensorflow_memory() -> str:
 
 
 def report_compute_device() -> str:
-    """Print and return the inference device, once per Python process."""
+    """Print and return the detected TensorFlow device once per process."""
     global _reported_device
     if _reported_device is None:
         _reported_device = configure_tensorflow_memory()

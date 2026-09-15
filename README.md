@@ -13,7 +13,7 @@ provide:
 - batch processing, a DataFrame API and a command-line interface;
 - optional Plotly-based visualisation through `MusicEDA`.
 
-The current release is **1.2.0**.
+The current release is **1.2.1**.
 
 ## Installation
 

@@ -26,7 +26,15 @@ def load_audio(
     sample_rate: int = 44100,
     resample_quality: int = 1,
 ) -> Any:
-    """Return mono float32 audio (numpy). Try Essentia ``MonoLoader``; on failure decode via ffmpeg to a temp WAV."""
+    """Load audio as a NumPy array for analysis.
+
+    Parameters are the source ``path``, ``track`` mode (``"mono"`` or
+    ``"stereo"``), target ``sample_rate`` and Essentia ``resample_quality``.
+    Essentia handles supported formats directly; other formats, or failed
+    direct loads, are decoded through a temporary WAV file. Returns
+    ``(audio, sample_rate)`` and raises :class:`AudioLoadError` on decode
+    failure.
+    """
     p = Path(path)
     if not p.is_file():
         raise FileNotFoundError(p)

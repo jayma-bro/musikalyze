@@ -37,6 +37,15 @@ class TestTemplates(unittest.TestCase):
     def test_sanitize_prevents_relative_escape(self) -> None:
         self.assertEqual(sanitize_relative_path("../Artist/../../song?.opus"), "_/Artist/_/_/song_.opus")
 
+    def test_formatted_track_number_uses_scalar_from_multi_entry(self) -> None:
+        output = build_output_path(
+            "{tag_tracknumber_f} {tag_title}.{ext}",
+            {"tracknumber": ["02"], "title": "Tainted Love"},
+            {},
+            "opus",
+        )
+        self.assertEqual(output.as_posix(), "02 Tainted Love.opus")
+
     def test_template_value_cannot_create_subdirectory(self) -> None:
         output = build_output_path(
             "{tag_title}.{ext}",

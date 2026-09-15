@@ -27,7 +27,13 @@ _CLASSICAL_KEYS = frozenset(
     {"meta_bpm", "meta_key", "meta_scale", "meta_rgain_gain", "meta_rgain_peak", "meta_rgain_peak_dbfs"}
 )
 class LazyMetaEngine:
-    """Embeddings are computed once via ``compute_all_embeddings()``; heads and classical features are lazy."""
+    """Lazily compute embeddings, label predictions and classical metadata.
+
+    Parameters are the decoded mono ``audio`` array, named ``embedders`` and
+    ``extractors``, the source ``audio_path`` used by optional models, the
+    metadata ``sep`` separator, and an optional TempoCNN model path. Results
+    are cached for the lifetime of the engine.
+    """
 
     def __init__(
         self,
@@ -80,14 +86,18 @@ class LazyMetaEngine:
         return self._embedders[name]
 
     def compute_all_embeddings(self) -> None:
-        """Run every registered embedding model once (call from ``MusicProcess.analyze_file()``)."""
+        """Compute every registered embedding exactly once and cache the results."""
 
         for name in self._embedders:
             if name not in self._emb:
                 self.compute_embedding(name)
 
     def compute_embedding(self, embedder_name: str) -> None:
-        """Run a signe embedding model define by the name"""
+        """Compute and cache the named embedding model.
+
+        Raises ``ValueError`` when the name is not registered or the model
+        family is unsupported.
+        """
         if embedder_name not in self._emb:
             if embedder_name in self._embedders:
                 emb = self._embedders[embedder_name]
@@ -117,21 +127,25 @@ class LazyMetaEngine:
             raise ValueError(f"embedding model named {embedder_name} is not found")
 
     def compute_all_extractor(self) -> None:
+        """Evaluate every label extractor and the available classical features."""
         _ = self._ensure_classical_key(None)
         for ex_name in self._extractors:
             _ = self.ensure_prediction(ex_name)
 
     def embedding(self, embedder_name: str) -> Any:
+        """Return a cached embedding, computing it if necessary."""
         if embedder_name not in self._emb:
             self.compute_embedding(embedder_name)
         return self._emb[embedder_name]
 
     def ensure_prediction(self, extractor_name: str) -> PredictionRecord:
+        """Return a cached label prediction for ``extractor_name``."""
         if extractor_name not in self._pred:
             self._pred[extractor_name] = self.run_label_head(extractor_name)
         return self._pred[extractor_name]
 
     def run_label_head(self, extractor_name: str) -> PredictionRecord:
+        """Run one classification, multilabel or regression head."""
         import numpy as np
         from essentia import Pool
         from essentia.standard import TensorflowPredict, TensorflowPredict2D
@@ -348,7 +362,11 @@ class LazyMetaEngine:
         return key == base or key.startswith(base + "_")
 
     def build_flat_meta(self, key: str | Iterable[str] | None = None) -> dict[str, Any]:
-        """Flat ``meta_*`` mapping for one key, a collection of keys, or everything (``None``)."""
+        """Return flat ``meta_*`` values for one key, several keys, or all data.
+
+        Missing predictions are computed lazily; passing ``None`` builds the
+        complete cached mapping.
+        """
         if key is None or isinstance(key, str):
             return self._build_flat_meta_one(key)
         out: dict[str, Any] = {}
@@ -482,6 +500,7 @@ class LazyMetaEngine:
         return out
 
     def get_one_meta(self, key: str) -> Any:
+        """Return one metadata value, raising a clear error for unknown keys."""
         meta_dict = self.build_flat_meta(key)
         if key not in meta_dict:
             meta_dict = self.build_flat_meta(None)
